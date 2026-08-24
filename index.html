@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Журнал музыкальной школы</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <section class="login-screen" id="loginScreen">
+      <form class="login-card" id="loginForm">
+        <div class="brand login-brand">
+          <div class="brand-mark">♪</div>
+          <div>
+            <p>&#1042;&#1093;&#1086;&#1076; &#1074; &#1089;&#1080;&#1089;&#1090;&#1077;&#1084;&#1091;</p>
+            <h1>&#1046;&#1091;&#1088;&#1085;&#1072;&#1083; &#1096;&#1082;&#1086;&#1083;&#1099;</h1>
+          </div>
+        </div>
+        <label>
+          &#1051;&#1086;&#1075;&#1080;&#1085;
+          <input type="text" id="loginUsername" autocomplete="username" required />
+        </label>
+        <label>
+          &#1055;&#1072;&#1088;&#1086;&#1083;&#1100;
+          <input type="password" id="loginPassword" autocomplete="current-password" required />
+        </label>
+        <button class="primary-button" type="submit">&#1042;&#1086;&#1081;&#1090;&#1080;</button>
+        <p class="login-hint">admin / admin123 · teacher / teacher123</p>
+      </form>
+    </section>
+
+    <div class="app-shell is-hidden" id="appShell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">♪</div>
+          <div>
+            <p>Личный кабинет</p>
+            <h1>Журнал школы</h1>
+          </div>
+        </div>
+
+        <label class="cabinet-select" id="cabinetSelectLabel">
+          Сотрудник
+          <select id="activeEmployee"></select>
+        </label>
+
+        <nav class="nav-tabs" aria-label="Разделы">
+          <button class="nav-tab active" type="button" data-tab="dashboard">Кабинет</button>
+          <button class="nav-tab" type="button" data-tab="schedule">Расписание</button>
+          <button class="nav-tab" type="button" data-tab="journal">Журнал</button>
+          <button class="nav-tab" type="button" data-tab="people">Списки</button>
+          <button class="nav-tab" type="button" data-tab="calendar">Календарь</button>
+        </nav>
+
+        <section class="summary-panel" aria-label="Сводка по сотруднику">
+          <div>
+            <span id="summaryWeekly">0</span>
+            <p>пед. ч. в неделю</p>
+          </div>
+          <div>
+            <span id="summaryMonthPed">0</span>
+            <p>пед. ч. за месяц</p>
+          </div>
+          <div>
+            <span id="summaryMonthKc">0</span>
+            <p>концертмейстерских ч.</p>
+          </div>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <section class="topbar">
+          <div>
+            <p class="eyebrow" id="activeEmployeeMeta">2025-2026 учебный год</p>
+            <h2 id="pageTitle">Кабинет преподавателя</h2>
+          </div>
+          <div class="top-actions">
+            <button class="ghost-button" type="button" id="logoutButton">&#1042;&#1099;&#1081;&#1090;&#1080;</button>
+            <button class="ghost-button" type="button" id="resetDemo">Сбросить демо</button>
+          </div>
+        </section>
+
+        <section class="tab-view active" id="dashboardView">
+          <div class="dashboard-grid">
+            <article class="metric-card">
+              <p>Действующих строк расписания</p>
+              <strong id="metricSchedule">0</strong>
+            </article>
+            <article class="metric-card">
+              <p>Записей журнала за месяц</p>
+              <strong id="metricRecords">0</strong>
+            </article>
+            <article class="metric-card">
+              <p>Исключено праздников</p>
+              <strong id="metricHolidays">0</strong>
+            </article>
+          </div>
+
+          <div class="content-panel">
+            <div class="panel-toolbar">
+              <div>
+                <h3>Ближайшие занятия</h3>
+                <p>Формируются из расписания и уже созданных записей журнала.</p>
+              </div>
+            </div>
+            <div class="cards-list" id="upcomingList"></div>
+          </div>
+        </section>
+
+        <section class="tab-view" id="scheduleView">
+          <div class="editor-panel">
+            <div class="form-header">
+              <h3>Расписание по дням</h3>
+              <p>Выберите день недели, перетащите ученика из списка в расписание и отредактируйте время, часы и остальные поля прямо в карточке занятия.</p>
+            </div>
+            <div class="schedule-board" id="scheduleBoard"></div>
+          </div>
+        </section>
+
+        <section class="tab-view" id="journalView">
+          <div class="editor-panel journal-controls">
+            <div class="form-header">
+              <h3>Формирование журнала</h3>
+              <p>25 числа можно сформировать весь месяц сразу, включая 26-31 числа. В журнал попадут только даты занятий, праздники не начисляются.</p>
+            </div>
+            <div class="form-grid month-grid">
+              <label>
+                Месяц журнала
+                <input type="month" id="journalMonth" value="2026-01" />
+              </label>
+              <label>
+                Сформировать на дату
+                <input type="date" id="generateAsOf" value="2026-01-25" />
+              </label>
+              <button class="primary-button form-button" type="button" id="generateJournal">Сформировать журнал</button>
+            </div>
+          </div>
+
+          <div class="content-panel">
+            <div class="panel-toolbar">
+              <div>
+                <h3 id="journalTitle">Журнал за месяц</h3>
+                <p id="journalHint">Сначала сформируйте журнал.</p>
+              </div>
+              <button class="ghost-button" type="button" id="printJournal">Печать</button>
+            </div>
+            <div class="journal-scroll" id="journalMatrix"></div>
+          </div>
+        </section>
+
+        <section class="tab-view" id="peopleView">
+          <div class="two-columns">
+            <form class="editor-panel compact is-hidden" id="studentForm">
+              <div class="form-header">
+                <h3>Ученики и группы</h3>
+                <p>Можно добавить индивидуального ученика, ансамбль или оркестр.</p>
+              </div>
+              <label>
+                Название
+                <input type="text" id="studentName" placeholder="Фамилия Имя или Оркестр" required />
+              </label>
+              <label>
+                Класс
+                <input type="text" id="studentClass" placeholder="5/8, анс, оркестр" />
+              </label>
+              <button class="primary-button" type="submit">Добавить</button>
+            </form>
+
+            <form class="editor-panel compact is-hidden" id="employeeForm">
+              <div class="form-header">
+                <h3>Сотрудники</h3>
+                <p>Каждый сотрудник получает свой кабинет и свое расписание.</p>
+              </div>
+              <label>
+                ФИО
+                <input type="text" id="employeeName" placeholder="Полуротова Юлия Валерьевна" required />
+              </label>
+              <label>
+                Должность / предмет
+                <input type="text" id="employeeRole" placeholder="Преподаватель саксофона" required />
+              </label>
+              <label>
+                &#1051;&#1086;&#1075;&#1080;&#1085;
+                <input type="text" id="employeeUsername" placeholder="ivanova" required />
+              </label>
+              <label>
+                &#1055;&#1072;&#1088;&#1086;&#1083;&#1100;
+                <input type="text" id="employeePassword" placeholder="password123" required />
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="employeeIsAdmin" />
+                &#1040;&#1076;&#1084;&#1080;&#1085;&#1080;&#1089;&#1090;&#1088;&#1072;&#1090;&#1086;&#1088;
+              </label>
+              <button class="primary-button" type="submit">Добавить</button>
+            </form>
+          </div>
+
+          <div class="people-stack">
+            <div class="content-panel people-section">
+              <div class="panel-toolbar people-toolbar">
+                <h3>Ученики</h3>
+                <button class="mini-button" type="button" data-action="openStudentModal:add">+</button>
+              </div>
+              <div class="people-filters students-filters">
+                <label id="peopleTeacherFilterLabel">
+                  Преподаватель
+                  <select id="peopleTeacherFilter"></select>
+                </label>
+                <label>
+                  Инструмент
+                  <select id="studentInstrumentFilter"></select>
+                </label>
+                <label>
+                  Поиск ученика
+                  <input type="search" id="studentSearch" placeholder="Начните вводить имя" autocomplete="off" />
+                </label>
+              </div>
+              <div class="cards-grid people-list-grid" id="studentsList"></div>
+              <div class="pagination" id="studentsPagination"></div>
+            </div>
+
+            <div class="content-panel people-section">
+              <div class="panel-toolbar">
+                <h3>Группы</h3>
+                <button class="mini-button" type="button" data-action="openGroupModal:add">+</button>
+              </div>
+              <div class="cards-grid people-list-grid" id="groupsList"></div>
+              <div class="pagination" id="groupsPagination"></div>
+            </div>
+
+            <div class="content-panel people-section">
+              <div class="panel-toolbar">
+                <h3>Сотрудники</h3>
+                <button class="mini-button" type="button" data-action="openEmployeeModal:add">+</button>
+              </div>
+              <div class="people-filters employee-filters">
+                <label>
+                  Инструмент
+                  <select id="employeeInstrumentFilter"></select>
+                </label>
+                <label>
+                  Поиск сотрудника
+                  <input type="search" id="employeeSearch" placeholder="Начните вводить ФИО" autocomplete="off" />
+                </label>
+              </div>
+              <div class="cards-grid people-list-grid" id="employeesList"></div>
+              <div class="pagination" id="employeesPagination"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="tab-view" id="calendarView">
+          <form class="editor-panel compact is-hidden" id="holidayForm">
+            <div class="form-header">
+              <h3>Учебный план</h3>
+              <p>Даты каникул и неучебных дней используются при формировании журнала: занятия в эти дни не начисляются.</p>
+            </div>
+            <div class="form-grid three">
+              <label>
+                Дата
+                <input type="date" id="holidayDate" required />
+              </label>
+              <label>
+                Название
+                <input type="text" id="holidayName" placeholder="Каникулы / неучебный день" required />
+              </label>
+              <button class="primary-button form-button" type="submit">Добавить дату</button>
+            </div>
+          </form>
+
+          <div class="content-panel">
+            <div class="panel-toolbar">
+              <div>
+                <h3>Учебный план 2025-2026</h3>
+                <p>Красным выделены каникулы, праздники и воскресенья. По нажатию на дату можно добавить неучебный день вручную.</p>
+              </div>
+              <button class="mini-button" type="button" data-action="openHolidayModal:add">+</button>
+            </div>
+            <div class="calendar-legend">
+              <span><b></b>Каникулы и неучебные дни</span>
+            </div>
+            <div class="calendar-grid" id="holidaysList"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="modal-overlay is-hidden" id="modalOverlay">
+      <section class="modal-window">
+        <button class="modal-close" type="button" id="modalClose">?</button>
+        <div id="modalContent"></div>
+      </section>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

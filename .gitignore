@@ -1,0 +1,6 @@
+contingent_extract.txt
+contingent_parsed*.json
+docx_extract.txt
+pdf_extract.txt
+node_modules/
+.DS_Store
