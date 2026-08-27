@@ -2221,6 +2221,11 @@ document.querySelector("#activeEmployee").addEventListener("change", (event) => 
   persistAndRender();
 });
 document.querySelector("#logoutButton").addEventListener("click", logout);
+document.querySelector("#exportData").addEventListener("click", exportSchoolData);
+document.querySelector("#importData").addEventListener("click", () => {
+  if (isAdmin()) document.querySelector("#dataImportFile").click();
+});
+document.querySelector("#dataImportFile").addEventListener("change", importSchoolData);
 ["#studentSearch", "#employeeSearch"].forEach((selector) => {
   document.querySelector(selector)?.addEventListener("input", () => {
     resetPeoplePages();
@@ -2245,6 +2250,7 @@ document.querySelector("#journalMonth").addEventListener("change", () => {
   render();
 });
 document.querySelector("#resetDemo").addEventListener("click", () => {
+  if (!isAdmin()) return;
   if (!confirm("Вернуть демо-данные и очистить текущие изменения?")) return;
   state = migrateState(createDemoData());
   state.sessionEmployeeId = "";
@@ -2862,6 +2868,8 @@ function nextGroupExternalIdFor(data) {
 }
 
 function persistAndRender() {
+  const saved = localStorage.getItem(storageKey);
+  if (saved) localStorage.setItem(`${storageKey}-backup`, saved);
   localStorage.setItem(storageKey, JSON.stringify(state));
   render();
 }
@@ -2893,6 +2901,49 @@ function renderAuthState() {
   const loggedIn = Boolean(currentUser());
   document.querySelector("#loginScreen").classList.toggle("is-hidden", loggedIn);
   document.querySelector("#appShell").classList.toggle("is-hidden", !loggedIn);
+  document.querySelectorAll(".admin-data-action").forEach((button) => {
+    button.classList.toggle("is-hidden", !loggedIn || !isAdmin());
+  });
+}
+
+function exportSchoolData() {
+  if (!isAdmin()) return;
+  const payload = {
+    format: "music-school-cabinet-backup-v1",
+    exportedAt: new Date().toISOString(),
+    state: { ...state, sessionEmployeeId: "" }
+  };
+  const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `journal-school-backup-${todayISO()}.json`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function importSchoolData(event) {
+  if (!isAdmin()) return;
+  const file = event.target.files?.[0];
+  event.target.value = "";
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.addEventListener("load", () => {
+    try {
+      const payload = JSON.parse(String(reader.result || ""));
+      const imported = payload.state || payload;
+      if (!Array.isArray(imported.employees) || !Array.isArray(imported.students) || !Array.isArray(imported.schedule)) {
+        throw new Error("invalid backup");
+      }
+      if (!confirm("Заменить текущие данные данными из резервной копии?")) return;
+      state = migrateState(imported);
+      state.sessionEmployeeId = currentUser()?.id || state.employees.find((employee) => employee.isAdmin)?.id || "";
+      persistAndRender();
+    } catch {
+      alert("Не удалось прочитать резервную копию. Выберите файл экспорта журнала.");
+    }
+  });
+  reader.readAsText(file, "UTF-8");
 }
 
 function login(event) {
