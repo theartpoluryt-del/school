@@ -4,3 +4,4 @@ docx_extract.txt
 pdf_extract.txt
 node_modules/
 .DS_Store
+supabase-config.js
