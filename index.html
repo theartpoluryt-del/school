@@ -52,20 +52,6 @@
           <button class="nav-tab" type="button" data-tab="calendar">Календарь</button>
         </nav>
 
-        <section class="summary-panel" aria-label="Сводка по сотруднику">
-          <div>
-            <span id="summaryWeekly">0</span>
-            <p>пед. ч. в неделю</p>
-          </div>
-          <div>
-            <span id="summaryMonthPed">0</span>
-            <p>пед. ч. за месяц</p>
-          </div>
-          <div>
-            <span id="summaryMonthKc">0</span>
-            <p>концертмейстерских ч.</p>
-          </div>
-        </section>
       </aside>
 
       <main class="workspace">
@@ -81,21 +67,6 @@
         </section>
 
         <section class="tab-view active" id="dashboardView">
-          <div class="dashboard-grid">
-            <article class="metric-card">
-              <p>Действующих строк расписания</p>
-              <strong id="metricSchedule">0</strong>
-            </article>
-            <article class="metric-card">
-              <p>Записей журнала за месяц</p>
-              <strong id="metricRecords">0</strong>
-            </article>
-            <article class="metric-card">
-              <p>Исключено праздников</p>
-              <strong id="metricHolidays">0</strong>
-            </article>
-          </div>
-
           <div class="content-panel">
             <div class="panel-toolbar">
               <div>
@@ -121,7 +92,6 @@
           <div class="editor-panel journal-controls">
             <div class="form-header">
               <h3>Формирование журнала</h3>
-              <p>25 числа можно сформировать весь месяц сразу, включая 26-31 числа. В журнал попадут только даты занятий, праздники не начисляются.</p>
             </div>
             <div class="form-grid month-grid">
               <label>
@@ -140,7 +110,6 @@
             <div class="panel-toolbar">
               <div>
                 <h3 id="journalTitle">Журнал за месяц</h3>
-                <p id="journalHint">Сначала сформируйте журнал.</p>
               </div>
               <button class="ghost-button" type="button" id="printJournal">Печать</button>
             </div>

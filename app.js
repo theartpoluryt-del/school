@@ -2865,7 +2865,6 @@ function render() {
   renderJournal();
   renderPeople();
   renderHolidays();
-  renderSummary();
 }
 
 function ensureActiveEmployee() {
@@ -3566,15 +3565,6 @@ function renderEmployeeSelect() {
 }
 
 function renderDashboard() {
-  const currentMonth = document.querySelector("#journalMonth").value;
-  const monthRecords = employeeRecords().filter((record) => record.date.startsWith(currentMonth) && !isHoliday(record.date));
-  const dates = monthDates(currentMonth);
-  const holidayHits = dates.filter((date) => isHoliday(date) && activeScheduleForDate(date).some((row) => parseISO(date).getDay() === row.weekday)).length;
-
-  document.querySelector("#metricSchedule").textContent = employeeSchedule().length;
-  document.querySelector("#metricRecords").textContent = monthRecords.length;
-  document.querySelector("#metricHolidays").textContent = holidayHits;
-
   const upcoming = plannedFromSchedule(14).slice(0, 8);
   document.querySelector("#upcomingList").innerHTML = upcoming.length
     ? upcoming.map(renderLessonCard).join("")
@@ -3847,10 +3837,6 @@ function renderJournal() {
   const dates = uniqueRecordDates(records);
 
   document.querySelector("#journalTitle").textContent = `Журнал за ${monthLabel(month)}`;
-  document.querySelector("#journalHint").textContent = records.length
-    ? `Записей: ${records.length}. В ячейке выберите 2-5 или оставьте квадратик без оценки.`
-    : "Сначала сформируйте журнал за выбранный месяц.";
-
   if (!dates.length) {
     document.querySelector("#journalMatrix").innerHTML = `<div class="empty-state">Нет дат занятий за выбранный месяц.</div>`;
     return;
@@ -4198,15 +4184,6 @@ function renderCalendarMonth(month) {
       <div class="calendar-days">${cells.join("")}</div>
     </section>
   `;
-}
-
-function renderSummary() {
-  const month = document.querySelector("#journalMonth").value;
-  const currentSchedule = employeeSchedule();
-  const monthRecords = employeeRecords().filter((record) => record.date.startsWith(month) && countableRecord(record));
-  document.querySelector("#summaryWeekly").textContent = formatNumber(sum(currentSchedule, "pedHours"));
-  document.querySelector("#summaryMonthPed").textContent = formatNumber(sum(monthRecords, "pedHours"));
-  document.querySelector("#summaryMonthKc").textContent = formatNumber(sum(monthRecords, "kcHours"));
 }
 
 function employeeSchedule() {
