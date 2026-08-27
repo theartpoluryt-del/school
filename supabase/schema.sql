@@ -41,6 +41,11 @@ grant select on table public.school_profiles to authenticated;
 grant select, update on table public.school_state to authenticated;
 grant insert on table public.school_state to authenticated;
 
+drop policy if exists "School members can read profiles" on public.school_profiles;
+drop policy if exists "School members can read the shared journal" on public.school_state;
+drop policy if exists "School members can create the first journal state" on public.school_state;
+drop policy if exists "School members can update the shared journal" on public.school_state;
+
 create policy "School members can read profiles"
 on public.school_profiles for select
 to authenticated
