@@ -1,4 +1,11 @@
 const storageKey = "music-school-cabinet-v2";
+const supabaseConfig = window.SCHOOL_SUPABASE_CONFIG;
+const supabaseClient = supabaseConfig?.url && supabaseConfig?.publishableKey && window.supabase
+  ? window.supabase.createClient(supabaseConfig.url, supabaseConfig.publishableKey)
+  : null;
+let cloudStateId = "";
+let cloudReady = false;
+let cloudSaveTimer = null;
 
 const weekdays = {
   1: "Понедельник",
@@ -2871,7 +2878,60 @@ function persistAndRender() {
   const saved = localStorage.getItem(storageKey);
   if (saved) localStorage.setItem(`${storageKey}-backup`, saved);
   localStorage.setItem(storageKey, JSON.stringify(state));
+  queueCloudSave();
   render();
+}
+
+function schoolAuthEmail(username) {
+  const safeUsername = String(username || "").trim().toLowerCase().replace(/[^a-z0-9._-]/g, "");
+  return `${safeUsername}@journal.local`;
+}
+
+async function loadCloudState() {
+  if (!supabaseClient) return false;
+  const { data, error } = await supabaseClient
+    .from("school_state")
+    .select("id, payload")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("Supabase state load failed", error.message);
+    return false;
+  }
+
+  if (data?.payload && Array.isArray(data.payload.employees)) {
+    state = migrateState(data.payload);
+    cloudStateId = data.id;
+  } else {
+    const created = await supabaseClient
+      .from("school_state")
+      .insert({ payload: state })
+      .select("id")
+      .single();
+    if (created.error) {
+      console.warn("Supabase initial state save failed", created.error.message);
+      return false;
+    }
+    cloudStateId = created.data.id;
+  }
+
+  cloudReady = true;
+  localStorage.setItem(storageKey, JSON.stringify(state));
+  return true;
+}
+
+function queueCloudSave() {
+  if (!supabaseClient || !cloudReady || !cloudStateId) return;
+  window.clearTimeout(cloudSaveTimer);
+  cloudSaveTimer = window.setTimeout(async () => {
+    const { error } = await supabaseClient
+      .from("school_state")
+      .update({ payload: state })
+      .eq("id", cloudStateId);
+    if (error) console.warn("Supabase state save failed", error.message);
+  }, 450);
 }
 
 function render() {
@@ -2946,12 +3006,30 @@ function importSchoolData(event) {
   reader.readAsText(file, "UTF-8");
 }
 
-function login(event) {
+async function login(event) {
   event.preventDefault();
   const username = document.querySelector("#loginUsername").value.trim();
   const password = document.querySelector("#loginPassword").value;
-  const employee = state.employees.find((item) => item.username === username && item.password === password);
+  let employee = null;
 
+  if (supabaseClient) {
+    const { error } = await supabaseClient.auth.signInWithPassword({
+      email: schoolAuthEmail(username),
+      password
+    });
+    if (!error && await loadCloudState()) {
+      employee = state.employees.find((item) => item.username === username);
+      if (!employee) {
+        await supabaseClient.auth.signOut();
+        alert("Этот аккаунт не найден в общей базе школы.");
+        return;
+      }
+    } else if (error) {
+      console.warn("Supabase sign-in failed", error.message);
+    }
+  }
+
+  employee = employee || state.employees.find((item) => item.username === username && item.password === password);
   if (!employee) {
     alert("Неверный логин или пароль.");
     return;
@@ -2963,9 +3041,12 @@ function login(event) {
   persistAndRender();
 }
 
-function logout() {
+async function logout() {
   state.sessionEmployeeId = "";
   persistAndRender();
+  if (supabaseClient) await supabaseClient.auth.signOut();
+  cloudReady = false;
+  cloudStateId = "";
 }
 
 function switchTab(name) {
