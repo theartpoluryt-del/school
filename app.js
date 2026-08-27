@@ -3015,6 +3015,7 @@ function openEmployeeModal() {
 }
 
 function openHolidayModal(date) {
+  if (!isAdmin()) return;
   openModal("Добавить дату учебного плана", `
     <form class="modal-form" data-modal-form="holiday">
       <label>Дата<input type="date" name="date" value="${date || ""}" required /></label>
@@ -3325,6 +3326,7 @@ function addEmployeeFromModal(form) {
 
 function addHoliday(event) {
   event.preventDefault();
+  if (!isAdmin()) return;
   state.holidays.push({
     id: crypto.randomUUID(),
     date: document.querySelector("#holidayDate").value,
@@ -3335,6 +3337,7 @@ function addHoliday(event) {
 }
 
 function addHolidayFromModal(form) {
+  if (!isAdmin()) return;
   const date = form.elements.date.value;
   const existing = state.holidays.find((holiday) => holiday.date === date);
   if (existing) {
@@ -3456,6 +3459,7 @@ function archiveCurrentSchedule(form) {
 }
 
 function deleteHoliday(id) {
+  if (!isAdmin()) return;
   const holiday = state.holidays.find((item) => item.id === id);
   if (!holiday) return;
   if (!confirm(`Удалить дату "${holiday.name}"?`)) return;
@@ -4154,6 +4158,12 @@ function resetPeoplePages() {
 
 
 function renderHolidays() {
+  const canManageHolidays = isAdmin();
+  document.querySelector("#holidayForm").classList.toggle("is-hidden", !canManageHolidays);
+  document.querySelector('[data-action="openHolidayModal:add"]').classList.toggle("is-hidden", !canManageHolidays);
+  document.querySelector("#calendarView .panel-toolbar p").textContent = canManageHolidays
+    ? "Красным выделены каникулы, праздники и воскресенья. По нажатию на дату можно добавить неучебный день вручную."
+    : "Красным выделены каникулы, праздники и воскресенья.";
   document.querySelector("#holidaysList").innerHTML = schoolYearMonths().map(renderCalendarMonth).join("");
 }
 
@@ -4172,10 +4182,11 @@ function renderCalendarMonth(month) {
     const date = `${month}-${String(day).padStart(2, "0")}`;
     const holiday = state.holidays.find((item) => item.date === date);
     const sunday = parseISO(date).getDay() === 0;
+    const canManageHolidays = isAdmin();
     cells.push(`
-      <div class="calendar-day ${holiday ? "holiday-day" : ""} ${sunday ? "weekend-day" : ""}" data-action="openHolidayDate:${date}" title="${holiday ? escapeAttr(holiday.name) : "Добавить выходной"}">
+      <div class="calendar-day ${holiday ? "holiday-day" : ""} ${sunday ? "weekend-day" : ""}" ${canManageHolidays ? `data-action="openHolidayDate:${date}" title="${holiday ? escapeAttr(holiday.name) : "Добавить выходной"}"` : (holiday ? `title="${escapeAttr(holiday.name)}"` : "")}>
         <strong>${day}</strong>
-        ${holiday ? `<span>${escapeHtml(holiday.name)}</span><button type="button" title="Удалить дату" data-action="deleteHoliday:${holiday.id}">×</button>` : sunday ? `<span>Воскресенье</span>` : ""}
+        ${holiday ? `<span>${escapeHtml(holiday.name)}</span>${canManageHolidays ? `<button type="button" title="Удалить дату" data-action="deleteHoliday:${holiday.id}">×</button>` : ""}` : sunday ? `<span>Воскресенье</span>` : ""}
       </div>
     `);
   }
