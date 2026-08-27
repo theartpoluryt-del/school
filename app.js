@@ -2706,9 +2706,15 @@ function migrateState(data) {
   }
 
   if (data.rosterSource !== "polurotova-xlsx-2025-2026-v1") {
-    applyContingentSeed(data);
-    migrateOrchestraGroup(data);
-    applyPolurotovaRoster(data);
+    const hasExistingSchoolData = data.students.length > 0 || data.schedule.length > 0 || data.records.length > 0;
+    if (!hasExistingSchoolData) {
+      applyContingentSeed(data);
+      migrateOrchestraGroup(data);
+      applyPolurotovaRoster(data);
+    } else {
+      migrateOrchestraGroup(data);
+      data.rosterSource = "polurotova-xlsx-2025-2026-v1";
+    }
   }
 
   return data;
