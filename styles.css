@@ -1034,8 +1034,10 @@ button:focus-visible {
 }
 
 .compact-person-card {
+  grid-template-rows: auto 1fr auto;
   gap: 8px;
   padding: 12px;
+  min-width: 0;
 }
 
 .compact-person-card h3 {
@@ -1044,19 +1046,24 @@ button:focus-visible {
 }
 
 .compact-person-card footer {
-  gap: 8px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px;
+  margin-top: auto;
 }
 
 .card-actions {
   display: flex;
-  gap: 8px;
+  justify-content: flex-end;
+  gap: 6px;
   min-width: 0;
 }
 
 .card-actions .mini-button,
 .card-actions .danger-button {
   min-height: 34px;
-  padding: 0 10px;
+  padding: 0 8px;
+  white-space: nowrap;
 }
 
 .line-clamp {
