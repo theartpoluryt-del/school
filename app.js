@@ -520,7 +520,9 @@ function ensureActiveEmployee() {
   }
 
   if (!visibleEmployees().find((employee) => employee.id === state.activeEmployeeId)) {
-    state.activeEmployeeId = visibleEmployees()[0]?.id || "";
+    state.activeEmployeeId = visibleEmployees().find((employee) => employee.id === state.sessionEmployeeId)?.id
+      || visibleEmployees()[0]?.id
+      || "";
   }
 }
 
@@ -569,7 +571,7 @@ function importSchoolData(event) {
       if (!importedUser) throw new Error("current user missing from backup");
       importedUser.isAdmin = Boolean(currentProfile?.is_admin);
       state.sessionEmployeeId = importedUser.id;
-      state.activeEmployeeId = importedUser.isAdmin ? visibleEmployees()[0]?.id || importedUser.id : importedUser.id;
+      state.activeEmployeeId = importedUser.id;
       persistAndRender();
     } catch {
       alert("Не удалось прочитать резервную копию. Выберите файл экспорта журнала.");
@@ -623,7 +625,7 @@ async function login(event) {
 
   employee.isAdmin = Boolean(currentProfile.is_admin);
   state.sessionEmployeeId = employee.id;
-  state.activeEmployeeId = employee.isAdmin ? visibleEmployees()[0]?.id || employee.id : employee.id;
+  state.activeEmployeeId = employee.id;
   event.target.reset();
   setLoginStatus("", "");
   submitButton.disabled = false;
@@ -671,7 +673,7 @@ async function initializeAuth() {
   }
   employee.isAdmin = Boolean(currentProfile.is_admin);
   state.sessionEmployeeId = employee.id;
-  state.activeEmployeeId = employee.isAdmin ? visibleEmployees()[0]?.id || employee.id : employee.id;
+  state.activeEmployeeId = employee.id;
   render();
 }
 
@@ -1855,14 +1857,14 @@ function renderPeople() {
 
 function teacherOptions() {
   return `<option value="">\u0412\u0441\u0435 \u043f\u0440\u0435\u043f\u043e\u0434\u0430\u0432\u0430\u0442\u0435\u043b\u0438</option>` + state.employees
-    .filter((employee) => !employee.isAdmin)
+    .filter(isTeachingEmployee)
     .map((employee) => `<option value="${employee.id}">${escapeHtml(employee.name)}</option>`)
     .join("");
 }
 
 function instrumentOptions(selectedValue) {
   const instruments = [...new Set(state.employees
-    .filter((employee) => !employee.isAdmin)
+    .filter(isTeachingEmployee)
     .map(employeeInstrument)
     .filter(Boolean))].sort((a, b) => a.localeCompare(b, "ru"));
   return `<option value="">\u0412\u0441\u0435 \u0438\u043d\u0441\u0442\u0440\u0443\u043c\u0435\u043d\u0442\u044b</option>` + instruments
@@ -2001,9 +2003,17 @@ function isAdmin() {
   return Boolean(currentUser()?.isAdmin);
 }
 
+function isTeachingEmployee(employee) {
+  return Boolean(employee) && employee.position !== "Администратор";
+}
+
 function visibleEmployees() {
   if (!isAdmin()) return currentUser() ? [currentUser()] : [];
-  const teachers = state.employees.filter((employee) => !employee.isAdmin);
+  const teachers = state.employees.filter(isTeachingEmployee);
+  const sessionEmployee = currentUser();
+  if (sessionEmployee && !teachers.some((employee) => employee.id === sessionEmployee.id)) {
+    teachers.unshift(sessionEmployee);
+  }
   return teachers.length ? teachers : state.employees;
 }
 
@@ -2241,7 +2251,7 @@ function minutesFromTime(value) {
 
 function gradeOptions(selectedGrade) {
   return ["", "2-", "2", "2+", "3-", "3", "3+", "4-", "4", "4+", "5-", "5", "5+"]
-    .map((grade) => `<option value="${grade}" ${grade === selectedGrade ? "selected" : ""}>${grade || "□"}</option>`)
+    .map((grade) => `<option value="${grade}" ${grade === selectedGrade ? "selected" : ""}>${grade || "•"}</option>`)
     .join("");
 }
 
@@ -2255,7 +2265,7 @@ function participantOptions(selectedId) {
 
 function teacherCheckboxes(selectedIds) {
   return state.employees
-    .filter((employee) => !employee.isAdmin)
+    .filter(isTeachingEmployee)
     .map((employee) => `
       <label class="checkbox-label">
         <input type="checkbox" name="employeeIds" value="${employee.id}" ${selectedIds.includes(employee.id) ? "checked" : ""} />

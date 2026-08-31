@@ -11,7 +11,8 @@ const types = {
 };
 
 const server = http.createServer((request, response) => {
-  const urlPath = request.url === "/" ? "/index.html" : request.url;
+  const pathname = new URL(request.url, "http://127.0.0.1").pathname;
+  const urlPath = pathname === "/" ? "/index.html" : pathname;
   const filePath = path.join(root, path.normalize(urlPath).replace(/^(\.\.[/\\])+/, ""));
 
   fs.readFile(filePath, (error, content) => {
