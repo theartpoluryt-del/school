@@ -3,7 +3,9 @@ const supabaseClient = supabaseConfig?.url && supabaseConfig?.publishableKey && 
   ? window.supabase.createClient(supabaseConfig.url, supabaseConfig.publishableKey)
   : null;
 let cloudStateId = "";
+let cloudStateVersion = "";
 let cloudReady = false;
+let secureCloudMode = false;
 let cloudSaveTimer = null;
 let currentProfile = null;
 
@@ -345,9 +347,26 @@ function schoolAuthEmail(username) {
 
 async function loadCloudState() {
   if (!supabaseClient) return false;
+
+  const secureResult = await supabaseClient.rpc("get_school_context");
+  if (!secureResult.error && secureResult.data?.payload) {
+    state = migrateState(secureResult.data.payload);
+    cloudStateId = secureResult.data.id;
+    cloudStateVersion = secureResult.data.updated_at;
+    secureCloudMode = true;
+    cloudReady = true;
+    return true;
+  }
+
+  if (secureResult.error && !["PGRST202", "42883"].includes(secureResult.error.code)) {
+    console.warn("Secure Supabase state load failed", secureResult.error.message);
+    return false;
+  }
+
+  // Compatibility path while schema.sql has not yet been applied.
   const { data, error } = await supabaseClient
     .from("school_state")
-    .select("id, payload")
+    .select("id, payload, updated_at")
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -360,19 +379,22 @@ async function loadCloudState() {
   if (data?.payload && Array.isArray(data.payload.employees)) {
     state = migrateState(data.payload);
     cloudStateId = data.id;
+    cloudStateVersion = data.updated_at;
   } else {
     const created = await supabaseClient
       .from("school_state")
-      .insert({ payload: state })
-      .select("id")
+      .insert({ payload: cloudPayload() })
+      .select("id, updated_at")
       .single();
     if (created.error) {
       console.warn("Supabase initial state save failed", created.error.message);
       return false;
     }
     cloudStateId = created.data.id;
+    cloudStateVersion = created.data.updated_at;
   }
 
+  secureCloudMode = false;
   cloudReady = true;
   return true;
 }
@@ -394,6 +416,24 @@ function queueCloudSave() {
   if (!supabaseClient || !cloudReady || !cloudStateId) return;
   window.clearTimeout(cloudSaveTimer);
   cloudSaveTimer = window.setTimeout(async () => {
+    if (secureCloudMode) {
+      const { data, error } = await supabaseClient.rpc("save_school_context", {
+        new_payload: cloudPayload(),
+        expected_updated_at: cloudStateVersion || null
+      });
+      if (error) {
+        console.warn("Secure Supabase state save failed", error.message);
+        if (error.code === "40001") {
+          alert("Данные уже изменены другим сотрудником. Загружена актуальная версия; повторите последнее действие.");
+          await loadCloudState();
+          render();
+        }
+        return;
+      }
+      cloudStateVersion = data.updated_at;
+      return;
+    }
+
     const { error } = await supabaseClient
       .from("school_state")
       .update({ payload: cloudPayload() })
@@ -532,6 +572,8 @@ async function logout() {
   currentProfile = null;
   cloudReady = false;
   cloudStateId = "";
+  cloudStateVersion = "";
+  secureCloudMode = false;
   render();
 }
 

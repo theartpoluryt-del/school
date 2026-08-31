@@ -1,9 +1,29 @@
 # Supabase setup
 
-1. Create a new Supabase project.
-2. In **SQL Editor**, run `supabase/schema.sql`.
-3. In **Authentication -> Users**, create the first administrator account.
-4. Run the final `insert` from `schema.sql`, replacing `AUTH_USER_UUID` with the ID of that account.
-5. Copy `supabase-config.example.js` to `supabase-config.js` and fill in the project URL and publishable key from **Project Settings -> API**.
+The website uses Supabase Auth for password verification and checked PostgreSQL functions for journal access. Passwords are never stored in `school_state`, browser storage, exports, or the repository.
 
-`supabase-config.js` is deliberately excluded from Git. Never put a Supabase service-role key in the website or repository.
+## Apply the secure migration
+
+1. Open **Supabase Dashboard → SQL Editor**.
+2. Run the complete `supabase/schema.sql` file.
+3. Confirm that `get_school_context` and `save_school_context` appear under **Database → Functions**.
+4. Confirm that direct access policies for `school_state` are absent.
+
+The migration is rerunnable. It also removes legacy `password` fields from every employee in the stored JSON.
+
+## Create an employee account
+
+1. Create `username@journal.local` in **Authentication → Users** with a strong temporary password.
+2. Copy that user's UUID.
+3. Add a matching profile:
+
+```sql
+insert into public.school_profiles (id, username, display_name, role, is_admin)
+values ('AUTH_USER_UUID', 'username', 'Employee name', 'Instrument or position', false);
+```
+
+The `username` must match the employee login stored in the journal. Set `is_admin` only for school administrators. Supabase Auth hashes and verifies passwords server-side.
+
+## Client configuration
+
+Copy `supabase-config.example.js` to `supabase-config.js` and fill in the project URL and publishable key. A publishable key is safe in a browser client; never add a service-role key or database password to the site.
