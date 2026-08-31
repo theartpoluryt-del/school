@@ -7,6 +7,8 @@ let cloudStateVersion = "";
 let cloudReady = false;
 let secureCloudMode = false;
 let cloudSaveTimer = null;
+let cloudSaveInFlight = false;
+let cloudSaveQueued = false;
 let currentProfile = null;
 
 const weekdays = {
@@ -271,6 +273,12 @@ document.addEventListener("keydown", (event) => {
   focusNextScheduleInput(scheduleInput);
 });
 
+window.addEventListener("beforeunload", (event) => {
+  if (!cloudSaveTimer && !cloudSaveInFlight && !cloudSaveQueued) return;
+  event.preventDefault();
+  event.returnValue = "";
+});
+
 function createDemoData() {
   return {
     sessionEmployeeId: "",
@@ -425,8 +433,22 @@ async function loadCurrentProfile(userId) {
 
 function queueCloudSave() {
   if (!supabaseClient || !cloudReady || !cloudStateId) return;
+  setSyncStatus("Изменения ожидают сохранения…", "pending");
   window.clearTimeout(cloudSaveTimer);
-  cloudSaveTimer = window.setTimeout(async () => {
+  cloudSaveTimer = window.setTimeout(flushCloudSave, 450);
+}
+
+async function flushCloudSave() {
+  cloudSaveTimer = null;
+  if (cloudSaveInFlight) {
+    cloudSaveQueued = true;
+    return;
+  }
+
+  cloudSaveInFlight = true;
+  cloudSaveQueued = false;
+  setSyncStatus("Сохраняем…", "pending");
+  try {
     if (secureCloudMode) {
       const { data, error } = await supabaseClient.rpc("save_school_context", {
         new_payload: cloudPayload(),
@@ -434,6 +456,7 @@ function queueCloudSave() {
       });
       if (error) {
         console.warn("Secure Supabase state save failed", error.message);
+        setSyncStatus("Не удалось сохранить", "error");
         if (error.code === "40001") {
           alert("Данные уже изменены другим сотрудником. Загружена актуальная версия; повторите последнее действие.");
           await loadCloudState();
@@ -442,6 +465,7 @@ function queueCloudSave() {
         return;
       }
       cloudStateVersion = data.updated_at;
+      setSyncStatus(`Сохранено в ${currentTimeLabel()}`, "saved");
       return;
     }
 
@@ -449,8 +473,27 @@ function queueCloudSave() {
       .from("school_state")
       .update({ payload: cloudPayload() })
       .eq("id", cloudStateId);
-    if (error) console.warn("Supabase state save failed", error.message);
-  }, 450);
+    if (error) {
+      console.warn("Supabase state save failed", error.message);
+      setSyncStatus("Не удалось сохранить", "error");
+      return;
+    }
+    setSyncStatus(`Сохранено в ${currentTimeLabel()}`, "saved");
+  } finally {
+    cloudSaveInFlight = false;
+    if (cloudSaveQueued) window.setTimeout(flushCloudSave, 0);
+  }
+}
+
+function setSyncStatus(message, kind) {
+  const status = document.querySelector("#syncStatus");
+  if (!status) return;
+  status.textContent = message;
+  status.dataset.kind = kind;
+}
+
+function currentTimeLabel() {
+  return new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit" }).format(new Date());
 }
 
 function render() {
@@ -502,6 +545,7 @@ function exportSchoolData() {
 
 function importSchoolData(event) {
   if (!isAdmin()) return;
+  const currentUsername = currentUser()?.username || currentProfile?.username || "";
   const file = event.target.files?.[0];
   event.target.value = "";
   if (!file) return;
@@ -516,7 +560,11 @@ function importSchoolData(event) {
       }
       if (!confirm("Заменить текущие данные данными из резервной копии?")) return;
       state = migrateState(imported);
-      state.sessionEmployeeId = currentUser()?.id || state.employees.find((employee) => employee.isAdmin)?.id || "";
+      const importedUser = state.employees.find((employee) => employee.username === currentUsername);
+      if (!importedUser) throw new Error("current user missing from backup");
+      importedUser.isAdmin = Boolean(currentProfile?.is_admin);
+      state.sessionEmployeeId = importedUser.id;
+      state.activeEmployeeId = importedUser.isAdmin ? visibleEmployees()[0]?.id || importedUser.id : importedUser.id;
       persistAndRender();
     } catch {
       alert("Не удалось прочитать резервную копию. Выберите файл экспорта журнала.");
@@ -1995,7 +2043,7 @@ function plannedFromSchedule(daysAhead) {
   for (let offset = 0; offset <= daysAhead; offset += 1) {
     const date = new Date(start);
     date.setDate(start.getDate() + offset);
-    const iso = date.toISOString().slice(0, 10);
+    const iso = localDateISO(date);
     if (isHoliday(iso)) continue;
     activeScheduleForDate(iso).forEach((row) => {
       if (date.getDay() !== row.weekday) return;
@@ -2359,7 +2407,14 @@ function addDaysISO(value, days) {
 }
 
 function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  return localDateISO(new Date());
+}
+
+function localDateISO(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function escapeHtml(value) {
