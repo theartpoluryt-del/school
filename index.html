@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Журнал музыкальной школы</title>
-    <link rel="stylesheet" href="styles.css?v=20260831-3" />
+    <link rel="stylesheet" href="styles.css?v=20260831-4" />
   </head>
   <body>
     <section class="login-screen" id="loginScreen">
@@ -20,10 +20,26 @@
           &#1051;&#1086;&#1075;&#1080;&#1085;
           <input type="text" id="loginUsername" autocomplete="username" required />
         </label>
-        <label>
-          &#1055;&#1072;&#1088;&#1086;&#1083;&#1100;
-          <input type="password" id="loginPassword" autocomplete="current-password" required />
-        </label>
+        <div class="login-field">
+          <label for="loginPassword">&#1055;&#1072;&#1088;&#1086;&#1083;&#1100;</label>
+          <div class="password-field">
+            <input type="password" id="loginPassword" autocomplete="current-password" required />
+            <button
+              class="password-toggle"
+              type="button"
+              id="toggleLoginPassword"
+              aria-label="&#1055;&#1086;&#1082;&#1072;&#1079;&#1072;&#1090;&#1100; &#1087;&#1072;&#1088;&#1086;&#1083;&#1100;"
+              aria-pressed="false"
+              title="&#1055;&#1086;&#1082;&#1072;&#1079;&#1072;&#1090;&#1100; &#1087;&#1072;&#1088;&#1086;&#1083;&#1100;"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" />
+                <circle cx="12" cy="12" r="2.75" />
+                <path class="password-toggle-slash" d="m4 4 16 16" />
+              </svg>
+            </button>
+          </div>
+        </div>
         <button class="primary-button" type="submit">&#1042;&#1086;&#1081;&#1090;&#1080;</button>
         <p class="login-status" id="loginStatus" role="status" aria-live="polite"></p>
       </form>
@@ -262,6 +278,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js"></script>
-    <script src="app.js?v=20260831-3"></script>
+    <script src="app.js?v=20260831-4"></script>
   </body>
 </html>

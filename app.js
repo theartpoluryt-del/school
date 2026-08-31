@@ -92,6 +92,7 @@ const titles = {
 
 tabs.forEach((tab) => tab.addEventListener("click", () => switchTab(tab.dataset.tab)));
 document.querySelector("#loginForm").addEventListener("submit", login);
+document.querySelector("#toggleLoginPassword").addEventListener("click", toggleLoginPassword);
 document.querySelector("#modalClose").addEventListener("click", closeModal);
 document.querySelector("#modalOverlay").addEventListener("click", (event) => {
   if (event.target.id === "modalOverlay") closeModal();
@@ -717,6 +718,7 @@ async function login(event) {
   state.sessionEmployeeId = employee.id;
   state.activeEmployeeId = employee.id;
   event.target.reset();
+  setLoginPasswordVisibility(false);
   setLoginStatus("", "");
   submitButton.disabled = false;
   render();
@@ -730,7 +732,24 @@ async function logout() {
   cloudStateId = "";
   cloudStateVersion = "";
   secureCloudMode = false;
+  setLoginPasswordVisibility(false);
   render();
+}
+
+function toggleLoginPassword() {
+  const passwordInput = document.querySelector("#loginPassword");
+  setLoginPasswordVisibility(passwordInput.type === "password");
+  passwordInput.focus();
+}
+
+function setLoginPasswordVisibility(isVisible) {
+  const passwordInput = document.querySelector("#loginPassword");
+  const toggleButton = document.querySelector("#toggleLoginPassword");
+  const label = isVisible ? "Скрыть пароль" : "Показать пароль";
+  passwordInput.type = isVisible ? "text" : "password";
+  toggleButton.setAttribute("aria-pressed", String(isVisible));
+  toggleButton.setAttribute("aria-label", label);
+  toggleButton.title = label;
 }
 
 function setLoginStatus(message, kind) {

@@ -67,6 +67,58 @@ button {
   box-shadow: var(--shadow);
 }
 
+.login-field {
+  display: grid;
+  gap: 7px;
+}
+
+.password-field {
+  position: relative;
+}
+
+.password-field input {
+  padding-right: 48px;
+}
+
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 5px;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 36px;
+  min-height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.password-toggle:hover {
+  background: rgba(20, 108, 104, 0.08);
+  color: var(--accent-strong);
+}
+
+.password-toggle svg {
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.password-toggle-slash {
+  display: none;
+}
+
+.password-toggle[aria-pressed="true"] .password-toggle-slash {
+  display: block;
+}
+
 .modal-overlay {
   position: fixed;
   inset: 0;
