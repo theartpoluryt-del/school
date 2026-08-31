@@ -160,16 +160,19 @@ document.addEventListener("click", (event) => {
   if (name === "peoplePage") setPeoplePage(id);
   if (name === "openHolidayModal") openHolidayModal("");
   if (name === "openHolidayDate") openHolidayModal(id);
+  if (name === "generateEmployeePassword") generateEmployeePassword(action.closest("form"));
+  if (name === "toggleEmployeePassword") toggleEmployeePassword(action.closest("form"), action);
+  if (name === "copyNewCredentials") copyNewCredentials();
 });
 
-document.addEventListener("submit", (event) => {
+document.addEventListener("submit", async (event) => {
   const form = event.target.closest("[data-modal-form]");
   if (!form) return;
   event.preventDefault();
 
   const type = form.dataset.modalForm;
   if (type === "student") addStudentFromModal(form);
-  if (type === "employee") addEmployeeFromModal(form);
+  if (type === "employee") await addEmployeeFromModal(form);
   if (type === "group") addGroupFromModal(form);
   if (type === "assignStudent") assignStudentFromModal(form);
   if (type === "assignGroup") assignGroupFromModal(form);
@@ -367,6 +370,93 @@ function cloudPayload() {
 function schoolAuthEmail(username) {
   const safeUsername = String(username || "").trim().toLowerCase().replace(/[^a-z0-9._-]/g, "");
   return `${safeUsername}@journal.local`;
+}
+
+function normalizeEmployeeUsername(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function randomCharacter(source) {
+  const value = new Uint32Array(1);
+  crypto.getRandomValues(value);
+  return source[value[0] % source.length];
+}
+
+function createTemporaryPassword() {
+  const groups = ["ABCDEFGHJKLMNPQRSTUVWXYZ", "abcdefghijkmnopqrstuvwxyz", "23456789", "!@#$%&*-_+"];
+  const alphabet = groups.join("");
+  const characters = groups.map(randomCharacter);
+  while (characters.length < 16) characters.push(randomCharacter(alphabet));
+  for (let index = characters.length - 1; index > 0; index -= 1) {
+    const value = new Uint32Array(1);
+    crypto.getRandomValues(value);
+    const swapIndex = value[0] % (index + 1);
+    [characters[index], characters[swapIndex]] = [characters[swapIndex], characters[index]];
+  }
+  return characters.join("");
+}
+
+function generateEmployeePassword(form) {
+  const input = form?.elements?.newPassword;
+  if (!input) return;
+  input.value = createTemporaryPassword();
+  input.type = "text";
+  const toggle = form.querySelector('[data-action="toggleEmployeePassword"]');
+  if (toggle) toggle.textContent = "Скрыть";
+  input.focus();
+  input.select();
+}
+
+function toggleEmployeePassword(form, button) {
+  const input = form?.elements?.newPassword;
+  if (!input) return;
+  input.type = input.type === "password" ? "text" : "password";
+  button.textContent = input.type === "password" ? "Показать" : "Скрыть";
+}
+
+async function invokeCredentialUpdate(currentUsername, newUsername, newPassword) {
+  if (!supabaseClient) throw new Error("Подключение к серверу не настроено.");
+  const { data, error } = await supabaseClient.functions.invoke("manage-school-user", {
+    body: { currentUsername, newUsername, newPassword }
+  });
+  if (error) {
+    let message = error.message || "Не удалось обновить учётные данные.";
+    try {
+      const details = await error.context?.json();
+      if (details?.error) message = details.error;
+    } catch {
+      // The generic function error is still useful when no JSON body is available.
+    }
+    throw new Error(message);
+  }
+  if (!data?.ok) throw new Error(data?.error || "Не удалось обновить учётные данные.");
+  return data;
+}
+
+function openCredentialResult(employeeName, username, password) {
+  openModal("Учётные данные обновлены", `
+    <div class="credential-result">
+      <p>Передайте новые данные сотруднику. После закрытия окна пароль больше не будет показан.</p>
+      <label>Сотрудник<input type="text" value="${escapeAttr(employeeName)}" readonly /></label>
+      <label>Логин<input type="text" id="newCredentialUsername" value="${escapeAttr(username)}" readonly /></label>
+      <label>Новый пароль<input type="text" id="newCredentialPassword" value="${escapeAttr(password)}" readonly /></label>
+      <p class="form-status" id="credentialCopyStatus" role="status"></p>
+      <button class="primary-button" type="button" data-action="copyNewCredentials">Скопировать логин и пароль</button>
+    </div>
+  `);
+}
+
+async function copyNewCredentials() {
+  const username = document.querySelector("#newCredentialUsername")?.value || "";
+  const password = document.querySelector("#newCredentialPassword")?.value || "";
+  const status = document.querySelector("#credentialCopyStatus");
+  if (!username || !password) return;
+  try {
+    await navigator.clipboard.writeText(`Логин: ${username}\nПароль: ${password}`);
+    if (status) status.textContent = "Логин и пароль скопированы.";
+  } catch {
+    if (status) status.textContent = "Не удалось скопировать автоматически. Скопируйте поля вручную.";
+  }
 }
 
 async function loadCloudState() {
@@ -781,11 +871,26 @@ function openEmployeeModal(employeeId) {
       <label>ФИО<input type="text" name="name" value="${escapeAttr(employee?.name || "")}" placeholder="Иванова Анна Сергеевна" required /></label>
       <label>Должность<select name="position">${employeePositionOptions(employee?.position)}</select></label>
       <label>Инструмент / предмет
-        <input type="text" name="instrument" value="${escapeAttr(employee?.instrument || "")}" list="instrumentCatalog" placeholder="Например, фортепиано" required />
+        <input type="text" name="instrument" value="${escapeAttr(employee?.instrument || "")}" list="instrumentCatalog" placeholder="Например, фортепиано" />
         <datalist id="instrumentCatalog">${instrumentCatalog.map((instrument) => `<option value="${escapeAttr(instrument)}"></option>`).join("")}</datalist>
       </label>
-      <label>Логин<input type="text" name="username" value="${escapeAttr(employee?.username || "")}" placeholder="ivanova" ${employee ? "readonly" : "required"} /></label>
+      <label>Логин
+        <input type="text" name="username" value="${escapeAttr(employee?.username || "")}" placeholder="ivanova" pattern="[a-z0-9][a-z0-9._-]{2,31}" required />
+      </label>
+      ${employee ? `
+        <div class="credential-editor">
+          <label>Новый пароль
+            <input type="password" name="newPassword" minlength="12" autocomplete="new-password" placeholder="Оставьте пустым, если менять не нужно" />
+          </label>
+          <div class="credential-actions">
+            <button class="mini-button" type="button" data-action="generateEmployeePassword">Сгенерировать</button>
+            <button class="mini-button" type="button" data-action="toggleEmployeePassword">Показать</button>
+          </div>
+          <p class="muted-note">Текущий пароль прочитать нельзя. После сброса новый пароль будет показан один раз.</p>
+        </div>
+      ` : ""}
       <label class="checkbox-label"><input type="checkbox" name="isAdmin" ${employee?.isAdmin ? "checked" : ""} />Администратор</label>
+      <p class="form-status" data-credential-status role="status"></p>
       <button class="primary-button" type="submit">${employee ? "Сохранить" : "Добавить"}</button>
     </form>
   `);
@@ -1074,25 +1179,56 @@ function addEmployee(event) {
   persistAndRender();
 }
 
-function addEmployeeFromModal(form) {
+async function addEmployeeFromModal(form) {
   if (!isAdmin()) return;
-  const username = form.elements.username.value.trim();
-  const existing = state.employees.find((employee) => employee.id === form.dataset.employeeId);
-  if (!existing && state.employees.some((employee) => employee.username === username)) {
+  const username = normalizeEmployeeUsername(form.elements.username.value);
+  let existing = state.employees.find((employee) => employee.id === form.dataset.employeeId);
+  const existingId = existing?.id || "";
+  const previousUsername = existing?.username || "";
+  if (!/^[a-z0-9][a-z0-9._-]{2,31}$/.test(username)) {
+    alert("Логин должен содержать 3–32 латинских символа: буквы, цифры, точку, дефис или подчёркивание.");
+    return;
+  }
+  if (state.employees.some((employee) => employee.id !== existing?.id && employee.username === username)) {
     alert("Такой логин уже используется.");
     return;
   }
 
+  const newPassword = existing ? form.elements.newPassword.value : "";
+  const credentialsChanged = Boolean(existing && (username !== previousUsername || newPassword));
+  const submitButton = form.querySelector('button[type="submit"]');
+  const status = form.querySelector("[data-credential-status]");
+  if (credentialsChanged) {
+    submitButton.disabled = true;
+    if (status) status.textContent = "Обновляем логин и пароль на сервере…";
+    try {
+      const result = await invokeCredentialUpdate(previousUsername, username, newPassword);
+      if (result.updatedAt) {
+        cloudStateVersion = result.updatedAt;
+        if (!await loadCloudState()) throw new Error("Логин изменён, но список не обновился. Перезагрузите страницу.");
+        existing = state.employees.find((employee) => employee.id === existingId);
+        if (!existing) throw new Error("Обновлённая карточка сотрудника не найдена. Перезагрузите страницу.");
+      }
+    } catch (error) {
+      submitButton.disabled = false;
+      if (status) status.textContent = error.message;
+      return;
+    }
+  }
+
   const employee = existing || { id: crypto.randomUUID(), username };
   employee.name = form.elements.name.value.trim();
+  employee.username = username;
   employee.position = form.elements.position.value;
   employee.instrument = form.elements.instrument.value.trim();
   employee.role = employee.position;
   employee.isAdmin = form.elements.isAdmin.checked;
+  if (currentProfile?.username === previousUsername) currentProfile.username = username;
   if (!existing) state.employees.push(employee);
   if (!employee.isAdmin) state.activeEmployeeId = employee.id;
   closeModal();
   persistAndRender();
+  if (newPassword) openCredentialResult(employee.name, username, newPassword);
 }
 
 function addHoliday(event) {
@@ -1844,7 +1980,7 @@ function renderPeople() {
     <article class="person-card compact-person-card">
       <div>
         <h3>${escapeHtml(employee.name)}</h3>
-        <p>${escapeHtml(employee.position || "Сотрудник")} · ${escapeHtml(employeeInstrument(employee) || "инструмент не указан")} · ${escapeHtml(employee.username)}</p>
+        <p>${escapeHtml(employee.position || "Сотрудник")} · ${escapeHtml(employeeInstrument(employee) || "инструмент не указан")} · Логин: ${escapeHtml(employee.username)}</p>
       </div>
       <footer>
         <span class="tag">${employee.id === state.activeEmployeeId ? "\u0430\u043a\u0442\u0438\u0432\u043d\u044b\u0439" : "\u0441\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a"}</span>

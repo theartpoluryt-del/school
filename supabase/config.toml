@@ -1,0 +1,4 @@
+project_id = "ebepcboologelhoisnlk"
+
+[functions.manage-school-user]
+verify_jwt = true

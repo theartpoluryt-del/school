@@ -178,6 +178,70 @@ drop trigger if exists school_state_updated_at on public.school_state;
 create trigger school_state_updated_at before insert or update on public.school_state
 for each row execute procedure public.set_school_state_timestamp();
 
+create or replace function public.admin_sync_employee_username(target_profile_id uuid, new_username text)
+returns timestamptz
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  state_row public.school_state%rowtype;
+  old_username text;
+  next_updated_at timestamptz;
+begin
+  if new_username !~ '^[a-z0-9][a-z0-9._-]{2,31}$' then
+    raise exception 'Invalid employee login' using errcode = '22023';
+  end if;
+
+  select username into old_username
+  from public.school_profiles
+  where id = target_profile_id
+  for update;
+  if old_username is null then raise exception 'Employee profile not found' using errcode = 'P0002'; end if;
+  if exists (select 1 from public.school_profiles where username = new_username and id <> target_profile_id) then
+    raise exception 'Employee login already exists' using errcode = '23505';
+  end if;
+  if old_username = new_username then
+    select updated_at into next_updated_at from public.school_state order by updated_at desc limit 1;
+    return next_updated_at;
+  end if;
+
+  select * into state_row from public.school_state order by updated_at desc limit 1 for update;
+  if state_row.id is null then raise exception 'School state is not initialized' using errcode = '55000'; end if;
+  if not exists (
+    select 1 from jsonb_array_elements(coalesce(state_row.payload->'employees', '[]'::jsonb)) employee
+    where employee->>'username' = old_username
+  ) then
+    raise exception 'Employee card is not linked to the profile' using errcode = 'P0002';
+  end if;
+
+  update public.school_profiles set username = new_username where id = target_profile_id;
+  update public.school_state
+  set payload = jsonb_set(
+    state_row.payload,
+    '{employees}',
+    coalesce((
+      select jsonb_agg(
+        case when employee->>'username' = old_username
+          then employee || jsonb_build_object('username', new_username)
+          else employee
+        end
+        order by item_order
+      )
+      from jsonb_array_elements(coalesce(state_row.payload->'employees', '[]'::jsonb))
+        with ordinality as employee_rows(employee, item_order)
+    ), '[]'::jsonb)
+  )
+  where id = state_row.id
+  returning updated_at into next_updated_at;
+
+  return next_updated_at;
+end;
+$$;
+
+revoke all on function public.admin_sync_employee_username(uuid, text) from public, anon, authenticated;
+grant execute on function public.admin_sync_employee_username(uuid, text) to service_role;
+
 update public.school_state set payload = public.strip_school_secrets(payload)
 where payload <> public.strip_school_secrets(payload);
 
