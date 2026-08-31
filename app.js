@@ -23,6 +23,11 @@ const workWeekdays = [1, 2, 3, 4, 5, 6];
 const lessonTypes = ["Специальность", "Ансамбль", "Оркестр", "Хор", "Сольфеджио", "Концертмейстер"];
 const educationForms = ["ДПП", "ДОП"];
 const dopSubjectName = "Музыкальные инструменты";
+const instrumentCatalog = [
+  "Фортепиано", "Скрипка", "Виолончель", "Флейта", "Кларнет", "Саксофон",
+  "Труба", "Ударные инструменты", "Аккордеон", "Баян", "Домра", "Балалайка",
+  "Гитара", "Вокал", "Хоровое пение", "Сольфеджио"
+];
 
 const holidaySeed = [
   ["2026-10-29", "Осенние каникулы"],
@@ -144,7 +149,7 @@ document.addEventListener("click", (event) => {
   if (name === "deleteEmployee") deleteEmployee(id);
   if (name === "deleteHoliday") deleteHoliday(id);
   if (name === "openStudentModal") openStudentModal();
-  if (name === "openEmployeeModal") openEmployeeModal();
+  if (name === "openEmployeeModal") openEmployeeModal(id === "add" ? "" : id);
   if (name === "openGroupModal") openGroupModal();
   if (name === "assignStudent") openAssignStudentModal(id);
   if (name === "assignGroup") openAssignGroupModal(id);
@@ -301,6 +306,11 @@ function migrateState(source) {
     delete employee.password;
     employee.username = String(employee.username || "").trim();
     employee.isAdmin = Boolean(employee.isAdmin);
+    const legacyRole = String(employee.role || "").trim();
+    const genericRoles = ["Администратор", "Преподаватель", "Концертмейстер", "Сотрудник"];
+    employee.position = employee.position || (employee.isAdmin ? "Администратор" : legacyRole === "Концертмейстер" ? "Концертмейстер" : "Преподаватель");
+    employee.instrument = String(employee.instrument || (!genericRoles.includes(legacyRole) ? legacyRole : "")).trim();
+    employee.role = employee.position;
   });
   data.students.forEach((student, index) => {
     student.externalId = student.externalId || `S-${String(index + 1).padStart(4, "0")}`;
@@ -701,16 +711,21 @@ function openAssignGroupModal(groupId) {
   `);
 }
 
-function openEmployeeModal() {
+function openEmployeeModal(employeeId) {
   if (!isAdmin()) return;
-  openModal("Добавить сотрудника", `
-    <form class="modal-form" data-modal-form="employee">
-      <p class="muted-note">Сначала создайте пользователя с адресом <strong>логин@journal.local</strong> в Supabase Authentication и профиль с тем же логином.</p>
-      <label>ФИО<input type="text" name="name" placeholder="Иванова Анна Сергеевна" required /></label>
-      <label>Должность / предмет<input type="text" name="role" placeholder="Преподаватель" required /></label>
-      <label>Логин<input type="text" name="username" placeholder="ivanova" required /></label>
-      <label class="checkbox-label"><input type="checkbox" name="isAdmin" />Администратор</label>
-      <button class="primary-button" type="submit">Добавить</button>
+  const employee = state.employees.find((item) => item.id === employeeId);
+  openModal(employee ? "Редактировать сотрудника" : "Добавить сотрудника", `
+    <form class="modal-form" data-modal-form="employee" data-employee-id="${employee?.id || ""}">
+      ${employee ? "" : `<p class="muted-note">Сначала создайте пользователя с адресом <strong>логин@journal.local</strong> в Supabase Authentication и профиль с тем же логином.</p>`}
+      <label>ФИО<input type="text" name="name" value="${escapeAttr(employee?.name || "")}" placeholder="Иванова Анна Сергеевна" required /></label>
+      <label>Должность<select name="position">${employeePositionOptions(employee?.position)}</select></label>
+      <label>Инструмент / предмет
+        <input type="text" name="instrument" value="${escapeAttr(employee?.instrument || "")}" list="instrumentCatalog" placeholder="Например, фортепиано" required />
+        <datalist id="instrumentCatalog">${instrumentCatalog.map((instrument) => `<option value="${escapeAttr(instrument)}"></option>`).join("")}</datalist>
+      </label>
+      <label>Логин<input type="text" name="username" value="${escapeAttr(employee?.username || "")}" placeholder="ivanova" ${employee ? "readonly" : "required"} /></label>
+      <label class="checkbox-label"><input type="checkbox" name="isAdmin" ${employee?.isAdmin ? "checked" : ""} />Администратор</label>
+      <button class="primary-button" type="submit">${employee ? "Сохранить" : "Добавить"}</button>
     </form>
   `);
 }
@@ -808,6 +823,12 @@ function handleTimeInput(input) {
     endInput.value = addMinutesToTime(startInput.value, duration);
   }
   validateScheduleTimePair(wrapper);
+}
+
+function employeePositionOptions(selectedPosition) {
+  return ["Преподаватель", "Концертмейстер", "Администратор"]
+    .map((position) => `<option value="${position}" ${position === selectedPosition ? "selected" : ""}>${position}</option>`)
+    .join("");
 }
 
 function commitScheduleTime(input) {
@@ -995,19 +1016,19 @@ function addEmployee(event) {
 function addEmployeeFromModal(form) {
   if (!isAdmin()) return;
   const username = form.elements.username.value.trim();
-  if (state.employees.some((employee) => employee.username === username)) {
+  const existing = state.employees.find((employee) => employee.id === form.dataset.employeeId);
+  if (!existing && state.employees.some((employee) => employee.username === username)) {
     alert("Такой логин уже используется.");
     return;
   }
 
-  const employee = {
-    id: crypto.randomUUID(),
-    name: form.elements.name.value.trim(),
-    role: form.elements.role.value.trim(),
-    username,
-    isAdmin: form.elements.isAdmin.checked
-  };
-  state.employees.push(employee);
+  const employee = existing || { id: crypto.randomUUID(), username };
+  employee.name = form.elements.name.value.trim();
+  employee.position = form.elements.position.value;
+  employee.instrument = form.elements.instrument.value.trim();
+  employee.role = employee.position;
+  employee.isAdmin = form.elements.isAdmin.checked;
+  if (!existing) state.employees.push(employee);
   if (!employee.isAdmin) state.activeEmployeeId = employee.id;
   closeModal();
   persistAndRender();
@@ -1268,7 +1289,7 @@ function renderEmployeeSelect() {
 
   const employee = activeEmployee();
   document.querySelector("#activeEmployeeMeta").textContent = employee
-    ? `${employee.role} · ${isAdmin() ? "администратор" : "преподаватель"} · 2026-2027 учебный год`
+    ? `${employee.position}${employee.instrument ? ` · ${employee.instrument}` : ""} · 2026-2027 учебный год`
     : "2026-2027 учебный год";
 }
 
@@ -1762,11 +1783,11 @@ function renderPeople() {
     <article class="person-card compact-person-card">
       <div>
         <h3>${escapeHtml(employee.name)}</h3>
-        <p>${escapeHtml(employeeInstrument(employee))} \u00b7 ${escapeHtml(employee.username)}${employee.isAdmin ? " \u00b7 \u0430\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440" : ""}</p>
+        <p>${escapeHtml(employee.position || "Сотрудник")} · ${escapeHtml(employeeInstrument(employee) || "инструмент не указан")} · ${escapeHtml(employee.username)}</p>
       </div>
       <footer>
         <span class="tag">${employee.id === state.activeEmployeeId ? "\u0430\u043a\u0442\u0438\u0432\u043d\u044b\u0439" : "\u0441\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a"}</span>
-        ${isAdmin() ? `<button class="danger-button" type="button" data-action="deleteEmployee:${employee.id}">\u0423\u0434\u0430\u043b\u0438\u0442\u044c</button>` : ""}
+        ${isAdmin() ? `<span class="card-actions"><button class="mini-button" type="button" data-action="openEmployeeModal:${employee.id}">Изменить</button><button class="danger-button" type="button" data-action="deleteEmployee:${employee.id}">\u0423\u0434\u0430\u043b\u0438\u0442\u044c</button></span>` : ""}
       </footer>
     </article>
   `).join("") || `<div class="empty-state">\u0421\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a\u0438 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u044b.</div>`;
@@ -1798,7 +1819,7 @@ function refreshSelect(select, options, selectedValue) {
 }
 
 function employeeInstrument(employee) {
-  return employee?.role || "\u0411\u0435\u0437 \u0438\u043d\u0441\u0442\u0440\u0443\u043c\u0435\u043d\u0442\u0430";
+  return String(employee?.instrument || "").trim();
 }
 
 function studentInstrumentNames(student) {
@@ -2179,7 +2200,7 @@ function teacherCheckboxes(selectedIds) {
     .map((employee) => `
       <label class="checkbox-label">
         <input type="checkbox" name="employeeIds" value="${employee.id}" ${selectedIds.includes(employee.id) ? "checked" : ""} />
-        ${escapeHtml(employee.name)}
+        ${escapeHtml(employee.name)}${employeeInstrument(employee) ? ` · ${escapeHtml(employeeInstrument(employee))}` : ""}
       </label>
     `).join("");
 }
