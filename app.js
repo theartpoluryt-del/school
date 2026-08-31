@@ -10,6 +10,7 @@ let cloudSaveTimer = null;
 let cloudSaveInFlight = false;
 let cloudSaveQueued = false;
 let currentProfile = null;
+let modalReturnFocus = null;
 
 const weekdays = {
   1: "Понедельник",
@@ -264,6 +265,10 @@ document.addEventListener("beforeinput", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !document.querySelector("#modalOverlay").classList.contains("is-hidden")) {
+    closeModal();
+    return;
+  }
   if (event.key !== "Enter") return;
   const scheduleInput = event.target.closest(".schedule-table input, .schedule-table select");
   if (!scheduleInput) return;
@@ -677,6 +682,7 @@ function switchTab(name) {
 }
 
 function openModal(title, body) {
+  modalReturnFocus = document.activeElement;
   document.querySelector("#modalContent").innerHTML = `
     <div class="form-header">
       <h3>${title}</h3>
@@ -685,12 +691,17 @@ function openModal(title, body) {
   `;
   document.querySelector("#modalOverlay").classList.remove("is-hidden");
   document.body.classList.add("modal-open");
+  window.requestAnimationFrame(() => {
+    document.querySelector("#modalContent input:not([type='hidden']), #modalContent select, #modalContent button")?.focus();
+  });
 }
 
 function closeModal() {
   document.querySelector("#modalOverlay").classList.add("is-hidden");
   document.querySelector("#modalContent").innerHTML = "";
   document.body.classList.remove("modal-open");
+  if (modalReturnFocus instanceof HTMLElement) modalReturnFocus.focus();
+  modalReturnFocus = null;
 }
 
 function openStudentModal() {
