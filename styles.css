@@ -644,10 +644,14 @@ label {
   font-weight: 800;
 }
 
-.schedule-table .time-part-input {
-  width: 42px;
-  padding: 0 6px;
-  text-align: center;
+.schedule-table .schedule-time-input {
+  width: 104px;
+  padding: 0 7px;
+}
+
+.time-pair.has-error .schedule-time-input {
+  border-color: var(--danger);
+  background: rgba(155, 64, 86, 0.06);
 }
 
 .time-dash {

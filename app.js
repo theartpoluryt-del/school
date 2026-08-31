@@ -230,9 +230,9 @@ document.addEventListener("input", (event) => {
     return;
   }
 
-  const timePart = event.target.closest("[data-time-part]");
-  if (timePart) {
-    handleTimeInput(timePart);
+  const scheduleTime = event.target.closest("[data-schedule-time]");
+  if (scheduleTime) {
+    handleTimeInput(scheduleTime);
     return;
   }
 
@@ -243,15 +243,15 @@ document.addEventListener("input", (event) => {
 });
 
 document.addEventListener("focusout", (event) => {
-  const timePart = event.target.closest("[data-time-part]");
-  if (timePart) commitScheduleTime(timePart, true);
+  const scheduleTime = event.target.closest("[data-schedule-time]");
+  if (scheduleTime) commitScheduleTime(scheduleTime);
 
   const numericInput = event.target.closest("[data-numeric-input]");
   if (numericInput) updateScheduleField(numericInput);
 });
 
 document.addEventListener("beforeinput", (event) => {
-  const numericTarget = event.target.closest("[data-time-part], [data-numeric-input]");
+  const numericTarget = event.target.closest("[data-numeric-input]");
   if (!numericTarget || !event.data) return;
   if (/\D/.test(event.data)) event.preventDefault();
 });
@@ -319,6 +319,7 @@ function migrateState(source) {
     row.archiveId = row.archiveId || "";
     row.effectiveFrom = row.effectiveFrom || "2026-09-01";
     if (row.type === "Индивидуальный урок") row.type = "Специальность";
+    row.time = normalizeScheduleTime(row.time) || row.time;
     row.room = digitsOnly(row.room || "");
   });
   data.records.forEach((record) => {
@@ -734,12 +735,14 @@ function openScheduleModal(weekday) {
 
   openModal(`Добавить занятие: ${weekdays[weekday]}`, `
     <form class="modal-form schedule-modal-form" data-modal-form="schedule" data-weekday="${weekday}">
-      <label>Время<input type="text" name="time" placeholder="14.45-15.25" required /></label>
+      <div class="form-grid two schedule-time-modal">
+        <label>Начало<input type="time" name="startTime" step="300" required /></label>
+        <label>Окончание<input type="time" name="endTime" step="300" required /></label>
+      </div>
       <label>Ученик / группа<select name="studentId" data-modal-participant>${participantOptions(participant.id)}</select></label>
       <label>Вид<select name="type">${lessonTypeOptions("Специальность")}</select></label>
       <label>Класс<input type="text" name="className" value="${escapeAttr(participant.className || "")}" data-modal-class readonly /></label>
-      <label>Пед. часы<input type="text" inputmode="numeric" name="pedHours" value="1" data-numeric-input required /></label>
-      <label>Конц. часы<input type="text" inputmode="numeric" name="kcHours" value="0" data-numeric-input required /></label>
+      <p class="muted-note">Педагогические или концертмейстерские часы рассчитаются автоматически: 40 минут = 1 час.</p>
       <label>Кабинет<input type="text" inputmode="numeric" name="room" placeholder="18" data-numeric-input /></label>
       <button class="primary-button" type="submit">Добавить</button>
     </form>
@@ -795,55 +798,43 @@ function updateScheduleField(field) {
 }
 
 function handleTimeInput(input) {
-  input.value = digitsOnly(input.value).slice(0, 2);
-  const part = input.dataset.timePart;
-
-  if (part === "hours") {
-    if (Number(input.value) > 24) input.value = "24";
-    if (input.value.length === 2 || (input.value.length === 1 && !["1", "2"].includes(input.value))) {
-      const minutesInput = input.closest(".time-pair")?.querySelector(`[data-time-bound="${input.dataset.timeBound}"][data-time-part="minutes"]`);
-      minutesInput?.focus();
-      minutesInput?.select();
-    }
+  const wrapper = input.closest(".time-pair");
+  if (!wrapper) return;
+  const startInput = wrapper.querySelector('[data-time-bound="start"]');
+  const endInput = wrapper.querySelector('[data-time-bound="end"]');
+  if (input === startInput && startInput.value && !endInput.value) {
+    const row = state.schedule.find((item) => item.id === input.dataset.scheduleId);
+    const duration = Math.max(20, (Number(row?.pedHours || 0) + Number(row?.kcHours || 0)) * 40 || 40);
+    endInput.value = addMinutesToTime(startInput.value, duration);
   }
-
-  if (part === "minutes" && input.value.length > 2) {
-    input.value = input.value.slice(0, 2);
-  }
-  if (part === "minutes" && Number(input.value) > 59) input.value = "59";
-
-  commitScheduleTime(input, false);
+  validateScheduleTimePair(wrapper);
 }
 
-function commitScheduleTime(input, normalizeMinutes) {
+function commitScheduleTime(input) {
   const row = state.schedule.find((item) => item.id === input.dataset.scheduleId);
   const wrapper = input.closest(".time-pair");
   if (!row || !wrapper) return;
+  const startInput = wrapper.querySelector('[data-time-bound="start"]');
+  const endInput = wrapper.querySelector('[data-time-bound="end"]');
+  if (!startInput.value || !endInput.value || !validateScheduleTimePair(wrapper)) return;
 
-  const startHoursInput = wrapper.querySelector('[data-time-bound="start"][data-time-part="hours"]');
-  const startMinutesInput = wrapper.querySelector('[data-time-bound="start"][data-time-part="minutes"]');
-  const endHoursInput = wrapper.querySelector('[data-time-bound="end"][data-time-part="hours"]');
-  const endMinutesInput = wrapper.querySelector('[data-time-bound="end"][data-time-part="minutes"]');
-  [startHoursInput, startMinutesInput, endHoursInput, endMinutesInput].forEach((item) => {
-    item.value = digitsOnly(item.value).slice(0, 2);
-  });
-
-  if (normalizeMinutes) {
-    [startMinutesInput, endMinutesInput].forEach((item) => {
-      if (item.value.length === 1) item.value = `0${item.value}`;
-    });
-    [startHoursInput, endHoursInput].forEach((item) => {
-      if (item.value.length === 1) item.value = `0${item.value}`;
-    });
-  }
-
-  const start = startHoursInput.value ? `${startHoursInput.value}:${startMinutesInput.value || (normalizeMinutes ? "00" : "")}` : "";
-  const end = endHoursInput.value ? `${endHoursInput.value}:${endMinutesInput.value || (normalizeMinutes ? "00" : "")}` : "";
-  row.time = start && end ? `${start}-${end}` : start;
+  row.time = `${startInput.value}-${endInput.value}`;
   updateHoursFromTime(row);
   refreshCalculatedHourInputs(wrapper, row);
   reorderScheduleRows(wrapper.closest("tbody"));
   queueCloudSave();
+}
+
+function validateScheduleTimePair(wrapper) {
+  const startInput = wrapper.querySelector('[data-time-bound="start"]');
+  const endInput = wrapper.querySelector('[data-time-bound="end"]');
+  const complete = Boolean(startInput.value && endInput.value);
+  const valid = !complete || minutesFromTime(endInput.value) > minutesFromTime(startInput.value);
+  const message = valid ? "" : "Окончание должно быть позже начала";
+  endInput.setCustomValidity(message);
+  endInput.setAttribute("aria-invalid", String(!valid));
+  wrapper.classList.toggle("has-error", !valid);
+  return valid;
 }
 
 function reorderScheduleRows(tbody) {
@@ -859,8 +850,8 @@ function reorderScheduleRows(tbody) {
 }
 
 function applyScheduleInput(input) {
-  if (input.matches("[data-time-part]")) {
-    commitScheduleTime(input, true);
+  if (input.matches("[data-schedule-time]")) {
+    commitScheduleTime(input);
     return;
   }
 
@@ -1055,22 +1046,32 @@ function addScheduleFromModal(form) {
   const participant = participantById(form.elements.studentId.value);
   if (!participant) return;
 
-  state.schedule.push({
+  const start = form.elements.startTime.value;
+  const end = form.elements.endTime.value;
+  if (!start || !end || minutesFromTime(end) <= minutesFromTime(start)) {
+    form.elements.endTime.setCustomValidity("Окончание должно быть позже начала");
+    form.elements.endTime.reportValidity();
+    return;
+  }
+
+  const row = {
     id: crypto.randomUUID(),
     employeeId: state.activeEmployeeId,
     effectiveFrom: currentScheduleEffectiveFrom(),
     effectiveTo: "",
     archiveId: "",
     weekday: Number(form.dataset.weekday),
-    time: form.elements.time.value.trim(),
+    time: `${start}-${end}`,
     studentId: form.elements.studentId.value,
     groupId: "",
     className: participant.className || "",
     type: form.elements.type.value,
-    pedHours: Number(digitsOnly(form.elements.pedHours.value) || 0),
-    kcHours: Number(digitsOnly(form.elements.kcHours.value) || 0),
+    pedHours: 0,
+    kcHours: 0,
     room: digitsOnly(form.elements.room.value)
-  });
+  };
+  updateHoursFromTime(row);
+  state.schedule.push(row);
   closeModal();
   persistAndRender();
 }
@@ -1393,13 +1394,9 @@ function renderScheduleRow(row) {
     <tr class="${row.effectiveTo ? "closed" : ""}" data-schedule-row="${row.id}">
       <td>
         <span class="time-pair">
-          <input class="time-part-input" type="text" value="${escapeAttr(time.startHours)}" inputmode="numeric" maxlength="2" data-schedule-id="${row.id}" data-time-bound="start" data-time-part="hours" />
-          <span>:</span>
-          <input class="time-part-input" type="text" value="${escapeAttr(time.startMinutes)}" inputmode="numeric" maxlength="2" data-schedule-id="${row.id}" data-time-bound="start" data-time-part="minutes" />
+          <input class="schedule-time-input" type="time" value="${escapeAttr(time.start)}" step="300" aria-label="Начало занятия" data-schedule-id="${row.id}" data-schedule-time data-time-bound="start" />
           <span class="time-dash">-</span>
-          <input class="time-part-input" type="text" value="${escapeAttr(time.endHours)}" inputmode="numeric" maxlength="2" data-schedule-id="${row.id}" data-time-bound="end" data-time-part="hours" />
-          <span>:</span>
-          <input class="time-part-input" type="text" value="${escapeAttr(time.endMinutes)}" inputmode="numeric" maxlength="2" data-schedule-id="${row.id}" data-time-bound="end" data-time-part="minutes" />
+          <input class="schedule-time-input" type="time" value="${escapeAttr(time.end)}" step="300" aria-label="Окончание занятия" data-schedule-id="${row.id}" data-schedule-time data-time-bound="end" />
         </span>
       </td>
       <td class="participant-cell"><strong>${escapeHtml(participant?.name || "\u041d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u043e")}</strong></td>
@@ -2064,9 +2061,8 @@ function compareSchedule(a, b) {
 }
 
 function scheduleStartMinutes(row) {
-  const { startHours, startMinutes } = splitScheduleTime(row.time);
-  if (!startHours) return Number.MAX_SAFE_INTEGER;
-  return Number(startHours) * 60 + Number(startMinutes || 0);
+  const { start } = splitScheduleTime(row.time);
+  return start ? minutesFromTime(start) : Number.MAX_SAFE_INTEGER;
 }
 
 function studentOptions(selectedId) {
@@ -2094,39 +2090,41 @@ function digitsOnly(value) {
 
 function splitScheduleTime(value) {
   const [startSource = "", endSource = ""] = String(value || "").split("-");
-  const start = timePartsFromText(startSource);
-  const end = timePartsFromText(endSource);
+  const start = normalizeTimePoint(startSource);
+  const end = normalizeTimePoint(endSource);
   return {
-    startHours: start.hours,
-    startMinutes: start.minutes,
-    endHours: end.hours,
-    endMinutes: end.minutes
+    start,
+    end
   };
+}
+
+function normalizeScheduleTime(value) {
+  const { start, end } = splitScheduleTime(value);
+  return start && end && minutesFromTime(end) > minutesFromTime(start) ? `${start}-${end}` : "";
+}
+
+function normalizeTimePoint(value) {
+  const source = String(value || "").trim();
+  const match = source.match(/^(\d{1,2})\D(\d{1,2})$/);
+  if (!match) return "";
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) return "";
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
 function scheduleTimeParts(row) {
   const parts = splitScheduleTime(row.time);
-  if (!parts.endHours && parts.startHours) {
-    const end = addMinutesToTime(`${parts.startHours}:${parts.startMinutes || "00"}`, (Number(row.pedHours || 0) + Number(row.kcHours || 0)) * 40);
-    const endParts = timePartsFromText(end);
-    parts.endHours = endParts.hours;
-    parts.endMinutes = endParts.minutes;
+  if (!parts.end && parts.start) {
+    parts.end = addMinutesToTime(parts.start, (Number(row.pedHours || 0) + Number(row.kcHours || 0)) * 40);
   }
   return parts;
 }
 
-function timePartsFromText(value) {
-  const match = String(value || "").match(/(\d{1,2})\D?(\d{0,2})/);
-  return {
-    hours: match?.[1] || "",
-    minutes: match?.[2] || ""
-  };
-}
-
 function addMinutesToTime(time, minutesToAdd) {
-  const parts = timePartsFromText(time);
-  if (!parts.hours) return "";
-  const total = (Number(parts.hours) * 60 + Number(parts.minutes || 0) + Number(minutesToAdd || 0)) % (24 * 60);
+  const normalized = normalizeTimePoint(time);
+  if (!normalized) return "";
+  const total = (minutesFromTime(normalized) + Number(minutesToAdd || 0)) % (24 * 60);
   const hours = String(Math.floor(total / 60)).padStart(2, "0");
   const minutes = String(total % 60).padStart(2, "0");
   return `${hours}:${minutes}`;
@@ -2147,21 +2145,18 @@ function updateHoursFromTime(row) {
 
 function lessonUnitsFromTime(value) {
   const parts = splitScheduleTime(value);
-  if (!parts.startHours || !parts.endHours) return null;
-  if (partialHour(parts.startHours) || partialHour(parts.endHours)) return null;
-  const start = minutesFromParts(parts.startHours, parts.startMinutes);
-  let end = minutesFromParts(parts.endHours, parts.endMinutes);
-  if (end < start) end += 24 * 60;
+  if (!parts.start || !parts.end) return null;
+  const start = minutesFromTime(parts.start);
+  const end = minutesFromTime(parts.end);
+  if (end <= start) return null;
   const duration = end - start;
   return Number((duration / 40).toFixed(2));
 }
 
-function partialHour(value) {
-  return String(value || "").length === 1 && ["1", "2"].includes(String(value));
-}
-
-function minutesFromParts(hours, minutes) {
-  return Number(hours || 0) * 60 + Number(minutes || 0);
+function minutesFromTime(value) {
+  const normalized = normalizeTimePoint(value);
+  if (!normalized) return Number.NaN;
+  return Number(normalized.slice(0, 2)) * 60 + Number(normalized.slice(3, 5));
 }
 
 function gradeOptions(selectedGrade) {
