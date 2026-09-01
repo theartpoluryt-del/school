@@ -1047,6 +1047,7 @@ function updateScheduleField(field) {
     if (key === "type") updateHoursFromTime(row);
   }
 
+  refreshPlannedJournalForScheduleChange(row);
   persistAndRender();
 }
 
@@ -1079,6 +1080,7 @@ function commitScheduleTime(input) {
 
   row.time = `${startInput.value}-${endInput.value}`;
   updateHoursFromTime(row);
+  refreshPlannedJournalForScheduleChange(row);
   refreshCalculatedHourInputs(wrapper, row);
   reorderScheduleRows(wrapper.closest("tbody"));
   queueCloudSave();
@@ -1378,15 +1380,17 @@ function closeScheduleRow(id) {
   const row = state.schedule.find((item) => item.id === id);
   if (!row) return;
   row.effectiveTo = row.effectiveTo || todayISO();
+  refreshPlannedJournalForScheduleChange(row);
   persistAndRender();
 }
 
 function deleteScheduleRow(id) {
   const hasRecords = state.records.some((record) => record.scheduleId === id);
-  if (hasRecords && !confirm("По этой строке уже есть записи журнала. Удалить только строку расписания? Журнал сохранится.")) {
+  if (hasRecords && !confirm("По этой строке уже есть записи журнала. Удалить занятие из расписания? Проведённые записи журнала сохранятся, будущие плановые записи будут удалены.")) {
     return;
   }
   state.schedule = state.schedule.filter((item) => item.id !== id);
+  state.records = state.records.filter((record) => record.scheduleId !== id || record.status === "conducted");
   persistAndRender();
 }
 
@@ -1424,6 +1428,9 @@ function archiveCurrentSchedule(form) {
   const effectiveFrom = currentScheduleEffectiveFrom();
   const nextVersionStart = addDaysISO(archivedThrough, 1);
   const archivedRowIds = new Set(currentRows.map((row) => row.id));
+  const affectedJournalMonths = [...new Set(state.records
+    .filter((record) => archivedRowIds.has(record.scheduleId) && record.status !== "conducted" && record.date > archivedThrough)
+    .map((record) => record.date.slice(0, 7)))];
   state.scheduleArchives.push({
     id: archiveId,
     employeeId: state.activeEmployeeId,
@@ -1451,6 +1458,7 @@ function archiveCurrentSchedule(form) {
     || record.status === "conducted"
   ));
   state.schedule.push(...nextVersionRows);
+  affectedJournalMonths.forEach((month) => refreshJournalMonth(month, todayISO(), state.activeEmployeeId));
   closeModal();
   persistAndRender();
 }
@@ -1522,13 +1530,35 @@ function setGrade(id, value) {
 function generateSelectedMonth() {
   const month = document.querySelector("#journalMonth").value;
   const asOf = document.querySelector("#generateAsOf").value;
+  const result = refreshJournalMonth(month, asOf, state.activeEmployeeId);
+
+  alert(result.created || result.removed
+    ? `Журнал обновлён. Создано записей: ${result.created}. Заменено плановых записей: ${result.removed}.`
+    : "Журнал уже актуален. Проведённые уроки и выставленные оценки сохранены.");
+  persistAndRender();
+}
+
+function refreshJournalMonth(month, asOf, employeeId) {
   const dates = monthDates(month);
+  const lockedDates = new Set(state.records
+    .filter((record) => record.employeeId === employeeId && record.date.startsWith(month) && record.status === "conducted")
+    .map((record) => record.date));
+  const removed = state.records.filter((record) => (
+    record.employeeId === employeeId
+    && record.date.startsWith(month)
+    && record.status !== "conducted"
+  )).length;
+  state.records = state.records.filter((record) => !(
+    record.employeeId === employeeId
+    && record.date.startsWith(month)
+    && record.status !== "conducted"
+  ));
   let created = 0;
 
   dates.forEach((date) => {
-    if (isHoliday(date)) return;
+    if (isHoliday(date) || lockedDates.has(date)) return;
     const dateObj = parseISO(date);
-    activeScheduleForDate(date).forEach((row) => {
+    activeScheduleForEmployeeDate(employeeId, date).forEach((row) => {
       if (dateObj.getDay() !== row.weekday) return;
       const exists = state.records.some((record) => record.scheduleId === row.id && record.date === date);
       if (exists) return;
@@ -1552,8 +1582,14 @@ function generateSelectedMonth() {
     });
   });
 
-  alert(created ? `Создано записей: ${created}` : "Новых записей не найдено. Уже созданные уроки сохранены.");
-  persistAndRender();
+  return { created, removed };
+}
+
+function refreshPlannedJournalForScheduleChange(row) {
+  const months = [...new Set(state.records
+    .filter((record) => record.scheduleId === row.id && record.status !== "conducted")
+    .map((record) => record.date.slice(0, 7)))];
+  months.forEach((month) => refreshJournalMonth(month, todayISO(), row.employeeId));
 }
 
 function renderEmployeeSelect() {
@@ -2325,7 +2361,15 @@ function participantById(id) {
 }
 
 function activeScheduleForDate(date) {
-  return employeeScheduleHistory().filter((row) => row.effectiveFrom <= date && (!row.effectiveTo || row.effectiveTo >= date));
+  return activeScheduleForEmployeeDate(state.activeEmployeeId, date);
+}
+
+function activeScheduleForEmployeeDate(employeeId, date) {
+  return state.schedule.filter((row) => (
+    row.employeeId === employeeId
+    && row.effectiveFrom <= date
+    && (!row.effectiveTo || row.effectiveTo >= date)
+  ));
 }
 
 function currentScheduleEffectiveFrom() {

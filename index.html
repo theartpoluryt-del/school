@@ -114,6 +114,7 @@
           <div class="editor-panel journal-controls">
             <div class="form-header">
               <h3>Формирование журнала</h3>
+              <p>При обновлении плановые занятия синхронизируются с актуальной версией расписания. Проведённые уроки и оценки не изменяются.</p>
             </div>
             <div class="form-grid month-grid">
               <label>
@@ -124,7 +125,7 @@
                 Сформировать на дату
                 <input type="date" id="generateAsOf" value="2026-09-25" />
               </label>
-              <button class="primary-button form-button" type="button" id="generateJournal">Сформировать журнал</button>
+              <button class="primary-button form-button" type="button" id="generateJournal">Сформировать / обновить</button>
             </div>
           </div>
 
@@ -296,6 +297,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js"></script>
-    <script src="app.js?v=20260902-2"></script>
+    <script src="app.js?v=20260902-3"></script>
   </body>
 </html>
