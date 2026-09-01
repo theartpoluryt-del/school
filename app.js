@@ -116,7 +116,7 @@ document.querySelector("#dataImportFile").addEventListener("change", importSchoo
     renderPeople();
   });
 });
-["#peopleTeacherFilter", "#studentInstrumentFilter", "#studentSort", "#employeeInstrumentFilter"].forEach((selector) => {
+["#adminStudentScope", "#studentInstrumentFilter", "#studentSort", "#employeeInstrumentFilter"].forEach((selector) => {
   document.querySelector(selector)?.addEventListener("change", () => {
     resetPeoplePages();
     renderPeople();
@@ -1964,20 +1964,26 @@ function renderPeople() {
     button.classList.toggle("is-hidden", !isAdmin());
   });
 
-  const teacherFilter = document.querySelector("#peopleTeacherFilter");
-  const teacherFilterLabel = document.querySelector("#peopleTeacherFilterLabel");
+  const adminStudentScope = document.querySelector("#adminStudentScope");
+  const adminStudentScopeLabel = document.querySelector("#adminStudentScopeLabel");
+  const adminStudentScopeText = document.querySelector("#adminStudentScopeText");
   const studentInstrumentFilter = document.querySelector("#studentInstrumentFilter");
   const studentSort = document.querySelector("#studentSort");
   const employeeInstrumentFilter = document.querySelector("#employeeInstrumentFilter");
   const searchInput = document.querySelector("#studentSearch");
   const employeeSearchInput = document.querySelector("#employeeSearch");
 
-  refreshSelect(teacherFilter, teacherOptions(), isAdmin() ? teacherFilter?.value || "" : state.sessionEmployeeId);
   refreshSelect(studentInstrumentFilter, instrumentOptions(studentInstrumentFilter?.value || ""), studentInstrumentFilter?.value || "");
   refreshSelect(employeeInstrumentFilter, instrumentOptions(employeeInstrumentFilter?.value || ""), employeeInstrumentFilter?.value || "");
-  teacherFilterLabel?.classList.toggle("is-hidden", !isAdmin());
+  adminStudentScopeLabel?.classList.toggle("is-hidden", !isAdmin());
 
-  const selectedTeacherId = isAdmin() ? teacherFilter?.value || "" : state.sessionEmployeeId;
+  const selectedTeacherId = isAdmin() && adminStudentScope?.checked ? state.activeEmployeeId : isAdmin() ? "" : state.sessionEmployeeId;
+  const selectedTeacher = state.employees.find((employee) => employee.id === state.activeEmployeeId);
+  if (adminStudentScopeText) {
+    adminStudentScopeText.textContent = selectedTeacherId ? `Ученики: ${selectedTeacher?.name || "выбранный преподаватель"}` : "Все ученики";
+  }
+  const scopeHint = adminStudentScopeLabel?.querySelector("small");
+  if (scopeHint) scopeHint.textContent = selectedTeacherId ? "Показать всех учеников" : "Показать только учеников выбранного преподавателя";
   const selectedStudentInstrument = studentInstrumentFilter?.value || "";
   const selectedStudentSort = studentSort?.value || "name";
   const selectedEmployeeInstrument = employeeInstrumentFilter?.value || "";
@@ -2053,13 +2059,6 @@ function renderPeople() {
     </article>
   `).join("") || `<div class="empty-state">\u0421\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a\u0438 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u044b.</div>`;
   document.querySelector("#employeesPagination").innerHTML = renderPagination("employees", employeePage.totalPages, employeePage.page, employees.length);
-}
-
-function teacherOptions() {
-  return `<option value="">\u0412\u0441\u0435 \u043f\u0440\u0435\u043f\u043e\u0434\u0430\u0432\u0430\u0442\u0435\u043b\u0438</option>` + state.employees
-    .filter(isTeachingEmployee)
-    .map((employee) => `<option value="${employee.id}">${escapeHtml(employee.name)}</option>`)
-    .join("");
 }
 
 function instrumentOptions(selectedValue) {

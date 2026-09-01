@@ -189,9 +189,15 @@
                 <button class="mini-button" type="button" data-action="openStudentModal:add" aria-label="Добавить ученика" title="Добавить ученика">+</button>
               </div>
               <div class="people-filters students-filters">
-                <label id="peopleTeacherFilterLabel">
-                  Преподаватель
-                  <select id="peopleTeacherFilter"></select>
+                <label class="student-scope-switch" id="adminStudentScopeLabel">
+                  <span class="switch-control">
+                    <input type="checkbox" id="adminStudentScope" />
+                    <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+                  </span>
+                  <span>
+                    <strong id="adminStudentScopeText">Все ученики</strong>
+                    <small>Переключить на выбранного преподавателя</small>
+                  </span>
                 </label>
                 <label>
                   Инструмент
