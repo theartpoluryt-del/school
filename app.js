@@ -300,9 +300,23 @@ function createDemoData() {
     schedule: [],
     records: [],
     scheduleArchives: [],
-    holidays: holidaySeed.map(([date, name]) => ({ id: crypto.randomUUID(), date, name })),
+    holidays: holidaySeed.map(([date, name]) => ({ id: createId(), date, name })),
     academicPlanVersion: "2026-2027-v2"
   };
+}
+
+function createId() {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  if (typeof crypto.getRandomValues === "function") {
+    crypto.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256);
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((value) => value.toString(16).padStart(2, "0"));
+  return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10).join("")}`;
 }
 
 function uniqueByIdValues(values) {
@@ -995,7 +1009,7 @@ function addScheduleRow(weekday) {
   }
 
   state.schedule.push({
-    id: crypto.randomUUID(),
+    id: createId(),
     employeeId: state.activeEmployeeId,
     effectiveFrom: currentScheduleEffectiveFrom(),
     effectiveTo: "",
@@ -1133,7 +1147,7 @@ function addStudent(event) {
   event.preventDefault();
   if (!isAdmin()) return;
   state.students.push({
-    id: crypto.randomUUID(),
+    id: createId(),
     name: document.querySelector("#studentName").value.trim(),
     className: document.querySelector("#studentClass").value.trim(),
     externalId: nextStudentExternalId(),
@@ -1155,7 +1169,7 @@ function addStudentFromModal(form) {
   }
 
   state.students.push({
-    id: crypto.randomUUID(),
+    id: createId(),
     externalId,
     name: form.elements.name.value.trim(),
     className: form.elements.className.value.trim(),
@@ -1177,7 +1191,7 @@ function addGroupFromModal(form) {
   }
 
   state.groups.push({
-    id: crypto.randomUUID(),
+    id: createId(),
     externalId,
     name: form.elements.name.value.trim(),
     className: form.elements.className.value.trim() || "группа",
@@ -1231,7 +1245,7 @@ function addEmployee(event) {
   }
 
   const employee = {
-    id: crypto.randomUUID(),
+    id: createId(),
     name: document.querySelector("#employeeName").value.trim(),
     role: document.querySelector("#employeeRole").value.trim(),
     username,
@@ -1280,7 +1294,7 @@ async function addEmployeeFromModal(form) {
     }
   }
 
-  const employee = existing || { id: crypto.randomUUID(), username };
+  const employee = existing || { id: createId(), username };
   employee.name = form.elements.name.value.trim();
   employee.username = username;
   employee.position = form.elements.position.value;
@@ -1300,7 +1314,7 @@ function addHoliday(event) {
   event.preventDefault();
   if (!isAdmin()) return;
   state.holidays.push({
-    id: crypto.randomUUID(),
+    id: createId(),
     date: document.querySelector("#holidayDate").value,
     name: document.querySelector("#holidayName").value.trim()
   });
@@ -1316,7 +1330,7 @@ function addHolidayFromModal(form) {
     existing.name = form.elements.name.value.trim();
   } else {
     state.holidays.push({
-      id: crypto.randomUUID(),
+      id: createId(),
       date,
       name: form.elements.name.value.trim()
     });
@@ -1338,7 +1352,7 @@ function addScheduleFromModal(form) {
   }
 
   const row = {
-    id: crypto.randomUUID(),
+    id: createId(),
     employeeId: state.activeEmployeeId,
     effectiveFrom: currentScheduleEffectiveFrom(),
     effectiveTo: "",
@@ -1405,7 +1419,7 @@ function archiveCurrentSchedule(form) {
     return;
   }
 
-  const archiveId = crypto.randomUUID();
+  const archiveId = createId();
   const effectiveFrom = currentScheduleEffectiveFrom();
   const nextVersionStart = addDaysISO(archivedThrough, 1);
   const archivedRowIds = new Set(currentRows.map((row) => row.id));
@@ -1420,7 +1434,7 @@ function archiveCurrentSchedule(form) {
 
   const nextVersionRows = currentRows.map((row) => ({
     ...row,
-    id: crypto.randomUUID(),
+    id: createId(),
     archiveId: "",
     effectiveFrom: nextVersionStart,
     effectiveTo: ""
@@ -1518,7 +1532,7 @@ function generateSelectedMonth() {
       const exists = state.records.some((record) => record.scheduleId === row.id && record.date === date);
       if (exists) return;
       state.records.push({
-        id: crypto.randomUUID(),
+        id: createId(),
         employeeId: row.employeeId,
         scheduleId: row.id,
         date,
@@ -1800,7 +1814,7 @@ function addScheduleFromParticipant(participantId, weekday) {
   const participant = visibleParticipants().find((item) => item.id === participantId);
   if (!participant || !workWeekdays.includes(weekday)) return;
   state.schedule.push({
-    id: crypto.randomUUID(),
+    id: createId(),
     employeeId: state.activeEmployeeId,
     effectiveFrom: currentScheduleEffectiveFrom(),
     effectiveTo: "",
