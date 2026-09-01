@@ -150,6 +150,7 @@ document.addEventListener("click", (event) => {
   if (name === "deleteSchedule") deleteScheduleRow(id);
   if (name === "archiveSchedule") openArchiveScheduleModal();
   if (name === "toggleScheduleArchive") toggleScheduleArchive();
+  if (name === "deleteScheduleArchive") deleteScheduleArchive(id);
   if (name === "printSchedule") printSchedule();
   if (name === "deleteStudent") deleteStudent(id);
   if (name === "deleteEmployee") deleteEmployee(id);
@@ -1715,6 +1716,20 @@ function toggleScheduleArchive() {
   renderSchedule();
 }
 
+function deleteScheduleArchive(id) {
+  if (!isAdmin()) return;
+  const archive = (state.scheduleArchives || []).find((item) => item.id === id);
+  if (!archive || archive.employeeId !== state.activeEmployeeId) return;
+
+  const archivedRows = state.schedule.filter((row) => row.archiveId === archive.id);
+  const period = archivePeriodLabel(archive, archivedRows);
+  if (!confirm(`Удалить архив расписания ${period}? Записи в журнале сохранятся.`)) return;
+
+  state.scheduleArchives = state.scheduleArchives.filter((item) => item.id !== archive.id);
+  state.schedule = state.schedule.filter((row) => row.archiveId !== archive.id);
+  persistAndRender();
+}
+
 function renderScheduleArchive() {
   const archives = (state.scheduleArchives || [])
     .filter((archive) => archive.employeeId === state.activeEmployeeId)
@@ -1735,7 +1750,10 @@ function renderScheduleArchive() {
           .sort(compareSchedule);
         return `
           <div class="schedule-archive-version">
-            <h4>${escapeHtml(archive.title || "Архивная версия")}: ${archivePeriodLabel(archive, rows)} - ${escapeHtml(weekdays[activeScheduleWeekday])}</h4>
+            <div class="schedule-archive-version-header">
+              <h4>${escapeHtml(archive.title || "Архивная версия")}: ${archivePeriodLabel(archive, rows)} - ${escapeHtml(weekdays[activeScheduleWeekday])}</h4>
+              <button class="danger-button" type="button" data-action="deleteScheduleArchive:${escapeAttr(archive.id)}">Удалить архив</button>
+            </div>
             <div class="schedule-table-wrap">
               <table class="schedule-table">
                 <thead><tr><th>Время</th><th>Ученик / группа</th><th>Класс</th><th>Вид</th><th>Пед.</th><th>Кц</th><th>Каб.</th><th></th></tr></thead>

@@ -661,9 +661,23 @@ label {
   border-top: 1px solid var(--line);
 }
 
+.schedule-archive-version-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
 .schedule-archive-version h4 {
-  margin: 0 0 10px;
+  flex: 1 1 280px;
+  margin: 0;
   font-size: 15px;
+}
+
+.schedule-archive-version-header .danger-button {
+  flex: 0 0 auto;
 }
 
 .schedule-print-sheet {
