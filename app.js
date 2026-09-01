@@ -365,6 +365,10 @@ function migrateState(source) {
     group.studentIds = uniqueByIdValues(group.studentIds || []);
     group.assignedEmployeeIds = uniqueByIdValues(group.assignedEmployeeIds || []);
     group.educationForm = normalizeEducationForm(group.educationForm);
+    group.instruments = uniqueTextValues(group.instruments?.length ? group.instruments : group.instrument ? [group.instrument] : []);
+    group.instrument = group.instruments[0] || "";
+    group.unresolvedStudentNames = uniqueTextValues(group.unresolvedStudentNames || []);
+    group.unresolvedTeacherNames = uniqueTextValues(group.unresolvedTeacherNames || []);
   });
   data.schedule.forEach((row) => {
     row.groupId = row.groupId || "";
@@ -2035,8 +2039,12 @@ function renderPeople() {
         <h3>${escapeHtml(group.name)}</h3>
         <p>${escapeHtml(group.className || "\u0433\u0440\u0443\u043f\u043f\u0430")}</p>
         <p>\u0424\u043e\u0440\u043c\u0430: ${escapeHtml(group.educationForm)}</p>
-        <p class="line-clamp">\u0421\u043e\u0441\u0442\u0430\u0432: ${group.studentIds.map(studentName).map(escapeHtml).join(", ") || "\u043f\u0443\u0441\u0442\u043e"}</p>
+        ${group.instrument ? `<p>Направление: ${escapeHtml(group.instrument)}</p>` : ""}
+        <p>Состав: ${group.studentIds.length} уч.</p>
+        <p class="line-clamp">${group.studentIds.map(studentName).map(escapeHtml).join(", ") || "\u0421\u043f\u0438\u0441\u043e\u043a \u0443\u0447\u0435\u043d\u0438\u043a\u043e\u0432 \u043f\u0443\u0441\u0442"}</p>
         <p>${isAdmin() ? `\u041f\u0440\u0435\u043f\u043e\u0434\u0430\u0432\u0430\u0442\u0435\u043b\u044c: ${assignedTeacherNames(group.assignedEmployeeIds || [])}` : "\u041f\u0440\u0435\u043f\u043e\u0434\u0430\u0432\u0430\u0442\u0435\u043b\u044c: \u0432\u044b"}</p>
+        ${isAdmin() && group.unresolvedStudentNames?.length ? `<p class="warning-note">Не найдены ученики: ${escapeHtml(group.unresolvedStudentNames.join(", "))}</p>` : ""}
+        ${isAdmin() && group.unresolvedTeacherNames?.length ? `<p class="warning-note">Не найдены преподаватели: ${escapeHtml(group.unresolvedTeacherNames.join(", "))}</p>` : ""}
       </div>
       <footer>
         <span class="tag">\u0413\u0440\u0443\u043f\u043f\u0430</span>
