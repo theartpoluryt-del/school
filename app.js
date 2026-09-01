@@ -393,6 +393,8 @@ function migrateState(source) {
     row.time = normalizeScheduleTime(row.time) || row.time;
     row.room = digitsOnly(row.room || "");
   });
+  const scheduleIds = new Set(data.schedule.map((row) => row.id));
+  data.records = data.records.filter((record) => scheduleIds.has(record.scheduleId));
   data.records.forEach((record) => {
     if (record.type === "Индивидуальный урок") record.type = "Специальность";
     const participant = [...data.students, ...data.groups].find((item) => item.id === record.studentId);
@@ -1047,7 +1049,7 @@ function updateScheduleField(field) {
     if (key === "type") updateHoursFromTime(row);
   }
 
-  refreshPlannedJournalForScheduleChange(row);
+  refreshGeneratedJournalForScheduleChange(row);
   persistAndRender();
 }
 
@@ -1080,7 +1082,7 @@ function commitScheduleTime(input) {
 
   row.time = `${startInput.value}-${endInput.value}`;
   updateHoursFromTime(row);
-  refreshPlannedJournalForScheduleChange(row);
+  refreshGeneratedJournalForScheduleChange(row);
   refreshCalculatedHourInputs(wrapper, row);
   reorderScheduleRows(wrapper.closest("tbody"));
   queueCloudSave();
@@ -1380,17 +1382,17 @@ function closeScheduleRow(id) {
   const row = state.schedule.find((item) => item.id === id);
   if (!row) return;
   row.effectiveTo = row.effectiveTo || todayISO();
-  refreshPlannedJournalForScheduleChange(row);
+  refreshGeneratedJournalForScheduleChange(row);
   persistAndRender();
 }
 
 function deleteScheduleRow(id) {
   const hasRecords = state.records.some((record) => record.scheduleId === id);
-  if (hasRecords && !confirm("По этой строке уже есть записи журнала. Удалить занятие из расписания? Проведённые записи журнала сохранятся, будущие плановые записи будут удалены.")) {
+  if (hasRecords && !confirm("По этой строке уже есть записи журнала. Удалить занятие вместе со связанными записями журнала?")) {
     return;
   }
   state.schedule = state.schedule.filter((item) => item.id !== id);
-  state.records = state.records.filter((record) => record.scheduleId !== id || record.status === "conducted");
+  state.records = state.records.filter((record) => record.scheduleId !== id);
   persistAndRender();
 }
 
@@ -1429,7 +1431,7 @@ function archiveCurrentSchedule(form) {
   const nextVersionStart = addDaysISO(archivedThrough, 1);
   const archivedRowIds = new Set(currentRows.map((row) => row.id));
   const affectedJournalMonths = [...new Set(state.records
-    .filter((record) => archivedRowIds.has(record.scheduleId) && record.status !== "conducted" && record.date > archivedThrough)
+    .filter((record) => archivedRowIds.has(record.scheduleId) && record.date > archivedThrough)
     .map((record) => record.date.slice(0, 7)))];
   state.scheduleArchives.push({
     id: archiveId,
@@ -1452,11 +1454,6 @@ function archiveCurrentSchedule(form) {
     row.archiveId = archiveId;
     row.effectiveTo = archivedThrough;
   });
-  state.records = state.records.filter((record) => (
-    !archivedRowIds.has(record.scheduleId)
-    || record.date <= archivedThrough
-    || record.status === "conducted"
-  ));
   state.schedule.push(...nextVersionRows);
   affectedJournalMonths.forEach((month) => refreshJournalMonth(month, todayISO(), state.activeEmployeeId));
   closeModal();
@@ -1540,28 +1537,33 @@ function generateSelectedMonth() {
 
 function refreshJournalMonth(month, asOf, employeeId) {
   const dates = monthDates(month);
-  const lockedDates = new Set(state.records
-    .filter((record) => record.employeeId === employeeId && record.date.startsWith(month) && record.status === "conducted")
-    .map((record) => record.date));
-  const removed = state.records.filter((record) => (
-    record.employeeId === employeeId
-    && record.date.startsWith(month)
-    && record.status !== "conducted"
-  )).length;
+  const previousRecords = state.records.filter((record) => record.employeeId === employeeId && record.date.startsWith(month));
+  const removed = previousRecords.length;
+  const reusedRecordIds = new Set();
   state.records = state.records.filter((record) => !(
     record.employeeId === employeeId
     && record.date.startsWith(month)
-    && record.status !== "conducted"
   ));
   let created = 0;
 
   dates.forEach((date) => {
-    if (isHoliday(date) || lockedDates.has(date)) return;
+    if (isHoliday(date)) return;
     const dateObj = parseISO(date);
     activeScheduleForEmployeeDate(employeeId, date).forEach((row) => {
       if (dateObj.getDay() !== row.weekday) return;
-      const exists = state.records.some((record) => record.scheduleId === row.id && record.date === date);
-      if (exists) return;
+      const previous = previousRecords.find((record) => (
+        !reusedRecordIds.has(record.id)
+        && record.date === date
+        && (
+          record.scheduleId === row.id
+          || (
+            record.studentId === row.studentId
+            && record.time === row.time
+            && record.type === row.type
+          )
+        )
+      ));
+      if (previous) reusedRecordIds.add(previous.id);
       state.records.push({
         id: createId(),
         employeeId: row.employeeId,
@@ -1575,8 +1577,8 @@ function refreshJournalMonth(month, asOf, employeeId) {
         type: row.type,
         pedHours: row.pedHours,
         kcHours: row.kcHours,
-        grade: "",
-        status: date <= asOf ? "conducted" : "planned"
+        grade: previous?.grade || "",
+        status: previous?.status === "conducted" || date <= asOf ? "conducted" : "planned"
       });
       created += 1;
     });
@@ -1585,9 +1587,9 @@ function refreshJournalMonth(month, asOf, employeeId) {
   return { created, removed };
 }
 
-function refreshPlannedJournalForScheduleChange(row) {
+function refreshGeneratedJournalForScheduleChange(row) {
   const months = [...new Set(state.records
-    .filter((record) => record.scheduleId === row.id && record.status !== "conducted")
+    .filter((record) => record.scheduleId === row.id)
     .map((record) => record.date.slice(0, 7)))];
   months.forEach((month) => refreshJournalMonth(month, todayISO(), row.employeeId));
 }
@@ -1759,10 +1761,12 @@ function deleteScheduleArchive(id) {
 
   const archivedRows = state.schedule.filter((row) => row.archiveId === archive.id);
   const period = archivePeriodLabel(archive, archivedRows);
-  if (!confirm(`Удалить архив расписания ${period}? Записи в журнале сохранятся.`)) return;
+  if (!confirm(`Удалить архив расписания ${period} вместе со связанными записями журнала?`)) return;
 
+  const archivedRowIds = new Set(archivedRows.map((row) => row.id));
   state.scheduleArchives = state.scheduleArchives.filter((item) => item.id !== archive.id);
   state.schedule = state.schedule.filter((row) => row.archiveId !== archive.id);
+  state.records = state.records.filter((record) => !archivedRowIds.has(record.scheduleId));
   persistAndRender();
 }
 
