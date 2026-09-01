@@ -323,15 +323,10 @@ button {
 }
 
 .brand-mark {
-  display: grid;
-  place-items: center;
   width: 48px;
   height: 48px;
-  border-radius: 8px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 28px;
-  font-weight: 800;
+  flex: 0 0 48px;
+  object-fit: contain;
 }
 
 .brand p,
