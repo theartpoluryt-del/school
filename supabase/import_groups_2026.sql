@@ -1,8 +1,6 @@
 -- Import collective classes from "Контингент с преподавателями.docx" (01.09.2026).
 -- Safe to rerun: only groups with the GRP-2026-* external IDs are replaced.
 
-begin;
-
 with group_seed as (
   select *
   from jsonb_to_recordset($seed$
@@ -198,8 +196,6 @@ set payload = jsonb_set(
 from retained_group_array retained
 cross join new_group_array imported
 where state.id = retained.id;
-
-commit;
 
 select
   item->>'name' as group_name,
