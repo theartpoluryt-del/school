@@ -2,6 +2,10 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const allowedOrigins = new Set([
   "https://theartpoluryt-del.github.io",
+  "https://muzjur.ru",
+  "https://www.muzjur.ru",
+  "http://muzjur.ru",
+  "http://www.muzjur.ru",
   "http://127.0.0.1:4173",
   "http://localhost:4173"
 ]);
