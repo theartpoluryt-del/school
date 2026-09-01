@@ -27,9 +27,11 @@ const lessonTypes = ["Специальность", "Ансамбль", "Орке
 const educationForms = ["ДПП", "ДОП"];
 const dopSubjectName = "Музыкальные инструменты";
 const instrumentCatalog = [
-  "Фортепиано", "Скрипка", "Виолончель", "Флейта", "Кларнет", "Саксофон",
-  "Труба", "Ударные инструменты", "Аккордеон", "Баян", "Домра", "Балалайка",
-  "Гитара", "Вокал", "Хоровое пение", "Сольфеджио"
+  "Фортепиано", "Скрипка", "Виолончель", "Скрипка и виолончель", "Флейта",
+  "Саксофон", "Флейта и саксофон", "Кларнет", "Труба", "Ударные инструменты",
+  "Аккордеон", "Баян", "Домра", "Балалайка", "Гитара", "Гитара и балалайка",
+  "Хоровое пение", "Инструменты эстрадного оркестра", "Сольное пение",
+  "Общее эстетическое образование", "Сольфеджио"
 ];
 
 const holidaySeed = [
@@ -114,7 +116,7 @@ document.querySelector("#dataImportFile").addEventListener("change", importSchoo
     renderPeople();
   });
 });
-["#peopleTeacherFilter", "#studentInstrumentFilter", "#employeeInstrumentFilter"].forEach((selector) => {
+["#peopleTeacherFilter", "#studentInstrumentFilter", "#studentSort", "#employeeInstrumentFilter"].forEach((selector) => {
   document.querySelector(selector)?.addEventListener("change", () => {
     resetPeoplePages();
     renderPeople();
@@ -307,6 +309,15 @@ function uniqueByIdValues(values) {
   return [...new Set((values || []).filter(Boolean))];
 }
 
+function uniqueTextValues(values) {
+  return [...new Set((values || []).map((value) => String(value || "").trim()).filter(Boolean))];
+}
+
+function parseInstrumentValues(value) {
+  if (Array.isArray(value)) return uniqueTextValues(value);
+  return uniqueTextValues(String(value || "").split(/\s*;\s*/));
+}
+
 function migrateState(source) {
   const data = source && typeof source === "object" ? structuredClone(source) : createDemoData();
   data.sessionEmployeeId = "";
@@ -326,13 +337,27 @@ function migrateState(source) {
     const legacyRole = String(employee.role || "").trim();
     const genericRoles = ["Администратор", "Преподаватель", "Концертмейстер", "Сотрудник"];
     employee.position = employee.position || (employee.isAdmin ? "Администратор" : legacyRole === "Концертмейстер" ? "Концертмейстер" : "Преподаватель");
-    employee.instrument = String(employee.instrument || (!genericRoles.includes(legacyRole) ? legacyRole : "")).trim();
+    const legacyInstrument = String(employee.instrument || (!genericRoles.includes(legacyRole) ? legacyRole : "")).trim();
+    employee.instruments = uniqueTextValues(employee.instruments?.length ? employee.instruments : legacyInstrument ? [legacyInstrument] : []);
+    employee.instrument = employee.instruments[0] || "";
     employee.role = employee.position;
   });
   data.students.forEach((student, index) => {
     student.externalId = student.externalId || `S-${String(index + 1).padStart(4, "0")}`;
     student.assignedEmployeeIds = uniqueByIdValues(student.assignedEmployeeIds || []);
-    student.educationForm = normalizeEducationForm(student.educationForm);
+    student.educationForms = uniqueTextValues(student.educationForms?.length ? student.educationForms : [normalizeEducationForm(student.educationForm)])
+      .filter((form) => educationForms.includes(form));
+    if (!student.educationForms.length) student.educationForms = ["ДПП"];
+    student.educationForm = student.educationForms[0];
+    student.instruments = uniqueTextValues(student.instruments || []);
+    student.unresolvedTeacherNames = uniqueTextValues(student.unresolvedTeacherNames || []);
+    student.enrollments = Array.isArray(student.enrollments) ? student.enrollments.map((enrollment) => ({
+      educationForm: normalizeEducationForm(enrollment.educationForm),
+      instrument: String(enrollment.instrument || "").trim(),
+      className: String(enrollment.className || student.className || "").trim(),
+      employeeIds: uniqueByIdValues(enrollment.employeeIds || []),
+      unresolvedTeacherNames: uniqueTextValues(enrollment.unresolvedTeacherNames || [])
+    })) : [];
     delete student.employeeId;
   });
   data.groups.forEach((group, index) => {
@@ -822,6 +847,8 @@ function openStudentModal() {
       <label>Название<input type="text" name="name" placeholder="Фамилия Имя или Оркестр" required /></label>
       <label>Класс<input type="text" name="className" placeholder="5/8, анс, оркестр" /></label>
       <label>Форма обучения<select name="educationForm">${educationFormOptions("ДПП")}</select></label>
+      <label>Инструмент / направление<input type="text" name="instruments" list="studentInstrumentCatalog" placeholder="Например, фортепиано" /></label>
+      <datalist id="studentInstrumentCatalog">${instrumentCatalog.map((instrument) => `<option value="${escapeAttr(instrument)}"></option>`).join("")}</datalist>
       <label>ID<input type="text" name="externalId" placeholder="автоматически, если оставить пустым" /></label>
       <button class="primary-button" type="submit">Добавить</button>
     </form>
@@ -848,7 +875,14 @@ function openAssignStudentModal(studentId) {
   if (!student) return;
   openModal(`Назначить ученика: ${escapeHtml(student.name)}`, `
     <form class="modal-form" data-modal-form="assignStudent" data-student-id="${student.id}">
-      <label>Форма обучения<select name="educationForm">${educationFormOptions(student.educationForm)}</select></label>
+      <fieldset class="compact-fieldset">
+        <legend>Формы обучения</legend>
+        <div class="inline-check-list">${educationFormCheckboxes(student.educationForms || [student.educationForm])}</div>
+      </fieldset>
+      <label>Инструменты / направления через «;»
+        <input type="text" name="instruments" value="${escapeAttr(studentInstrumentNames(student).join("; "))}" list="studentInstrumentCatalog" />
+        <datalist id="studentInstrumentCatalog">${instrumentCatalog.map((instrument) => `<option value="${escapeAttr(instrument)}"></option>`).join("")}</datalist>
+      </label>
       <div class="check-list">
         ${teacherCheckboxes(student.assignedEmployeeIds || [])}
       </div>
@@ -889,8 +923,8 @@ function openEmployeeModal(employeeId) {
       ${employee ? "" : `<p class="muted-note">Сначала создайте пользователя с адресом <strong>логин@journal.local</strong> в Supabase Authentication и профиль с тем же логином.</p>`}
       <label>ФИО<input type="text" name="name" value="${escapeAttr(employee?.name || "")}" placeholder="Иванова Анна Сергеевна" required /></label>
       <label>Должность<select name="position">${employeePositionOptions(employee?.position)}</select></label>
-      <label>Инструмент / предмет
-        <input type="text" name="instrument" value="${escapeAttr(employee?.instrument || "")}" list="instrumentCatalog" placeholder="Например, фортепиано" />
+      <label>Инструменты / предметы через «;»
+        <input type="text" name="instrument" value="${escapeAttr(employeeInstrumentNames(employee).join("; "))}" list="instrumentCatalog" placeholder="Например: фортепиано; хор" />
         <datalist id="instrumentCatalog">${instrumentCatalog.map((instrument) => `<option value="${escapeAttr(instrument)}"></option>`).join("")}</datalist>
       </label>
       <label>Логин
@@ -1100,6 +1134,8 @@ function addStudent(event) {
     className: document.querySelector("#studentClass").value.trim(),
     externalId: nextStudentExternalId(),
     educationForm: "ДПП",
+    educationForms: ["ДПП"],
+    instruments: [],
     assignedEmployeeIds: []
   });
   event.target.reset();
@@ -1120,6 +1156,8 @@ function addStudentFromModal(form) {
     name: form.elements.name.value.trim(),
     className: form.elements.className.value.trim(),
     educationForm: normalizeEducationForm(form.elements.educationForm.value),
+    educationForms: [normalizeEducationForm(form.elements.educationForm.value)],
+    instruments: parseInstrumentValues(form.elements.instruments.value),
     assignedEmployeeIds: []
   });
   closeModal();
@@ -1150,7 +1188,10 @@ function addGroupFromModal(form) {
 function assignStudentFromModal(form) {
   const student = state.students.find((item) => item.id === form.dataset.studentId);
   if (!student) return;
-  student.educationForm = normalizeEducationForm(form.elements.educationForm.value);
+  student.educationForms = uniqueTextValues(checkedValues(form, "educationForms")).filter((value) => educationForms.includes(value));
+  if (!student.educationForms.length) student.educationForms = ["ДПП"];
+  student.educationForm = student.educationForms[0];
+  student.instruments = parseInstrumentValues(form.elements.instruments.value);
   state.records.filter((record) => record.studentId === student.id).forEach((record) => {
     record.educationForm = student.educationForm;
   });
@@ -1239,7 +1280,8 @@ async function addEmployeeFromModal(form) {
   employee.name = form.elements.name.value.trim();
   employee.username = username;
   employee.position = form.elements.position.value;
-  employee.instrument = form.elements.instrument.value.trim();
+  employee.instruments = parseInstrumentValues(form.elements.instrument.value);
+  employee.instrument = employee.instruments[0] || "";
   employee.role = employee.position;
   employee.isAdmin = form.elements.isAdmin.checked;
   if (currentProfile?.username === previousUsername) currentProfile.username = username;
@@ -1925,6 +1967,7 @@ function renderPeople() {
   const teacherFilter = document.querySelector("#peopleTeacherFilter");
   const teacherFilterLabel = document.querySelector("#peopleTeacherFilterLabel");
   const studentInstrumentFilter = document.querySelector("#studentInstrumentFilter");
+  const studentSort = document.querySelector("#studentSort");
   const employeeInstrumentFilter = document.querySelector("#employeeInstrumentFilter");
   const searchInput = document.querySelector("#studentSearch");
   const employeeSearchInput = document.querySelector("#employeeSearch");
@@ -1936,24 +1979,25 @@ function renderPeople() {
 
   const selectedTeacherId = isAdmin() ? teacherFilter?.value || "" : state.sessionEmployeeId;
   const selectedStudentInstrument = studentInstrumentFilter?.value || "";
+  const selectedStudentSort = studentSort?.value || "name";
   const selectedEmployeeInstrument = employeeInstrumentFilter?.value || "";
   const studentSearch = normalizeText(searchInput?.value || "");
   const employeeSearch = normalizeText(employeeSearchInput?.value || "");
   const teacherMatches = (ids) => !selectedTeacherId || (ids || []).includes(selectedTeacherId);
 
-  const studentSource = isAdmin() ? state.students : visibleStudents();
+  const studentSource = (isAdmin() ? state.students : visibleStudents()).filter((student) => !student.isArchived);
   const groupSource = isAdmin() ? state.groups : visibleGroups();
   const students = studentSource
     .filter((student) => teacherMatches(student.assignedEmployeeIds))
-    .filter((student) => matchesInstrument(student.assignedEmployeeIds, selectedStudentInstrument))
+    .filter((student) => matchesStudentInstrument(student, selectedStudentInstrument))
     .filter((student) => !studentSearch || normalizeText(student.name).includes(studentSearch))
-    .sort((a, b) => a.name.localeCompare(b.name, "ru"));
+    .sort((a, b) => compareStudents(a, b, selectedStudentSort));
   const groups = groupSource
     .filter((group) => teacherMatches(group.assignedEmployeeIds))
     .sort((a, b) => a.name.localeCompare(b.name, "ru"));
   const employees = state.employees
     .filter((employee) => isAdmin() || employee.id === state.sessionEmployeeId)
-    .filter((employee) => !selectedEmployeeInstrument || employeeInstrument(employee) === selectedEmployeeInstrument)
+    .filter((employee) => !selectedEmployeeInstrument || employeeInstrumentNames(employee).includes(selectedEmployeeInstrument))
     .filter((employee) => !employeeSearch || normalizeText(employee.name).includes(employeeSearch))
     .sort((a, b) => a.name.localeCompare(b.name, "ru"));
 
@@ -1965,10 +2009,11 @@ function renderPeople() {
     <article class="person-card compact-person-card">
       <div>
         <h3>${escapeHtml(student.name)}</h3>
-        <p>${escapeHtml(student.className || "\u0431\u0435\u0437 \u043a\u043b\u0430\u0441\u0441\u0430")}</p>
-        <p>\u0424\u043e\u0440\u043c\u0430: ${escapeHtml(student.educationForm)}</p>
+        <p>${escapeHtml(studentClassLabel(student) || "\u0431\u0435\u0437 \u043a\u043b\u0430\u0441\u0441\u0430")}</p>
+        <p>\u0424\u043e\u0440\u043c\u0430: ${escapeHtml(studentEducationForms(student).join(", "))}</p>
         <p>\u0418\u043d\u0441\u0442\u0440\u0443\u043c\u0435\u043d\u0442: ${escapeHtml(studentInstrumentNames(student).join(", ") || "\u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d")}</p>
         <p>${isAdmin() ? `\u041f\u0440\u0435\u043f\u043e\u0434\u0430\u0432\u0430\u0442\u0435\u043b\u044c: ${assignedTeacherNames(student.assignedEmployeeIds || [])}` : "\u041f\u0440\u0435\u043f\u043e\u0434\u0430\u0432\u0430\u0442\u0435\u043b\u044c: \u0432\u044b"}</p>
+        ${isAdmin() && student.unresolvedTeacherNames?.length ? `<p class="warning-note">Не сопоставлены: ${escapeHtml(student.unresolvedTeacherNames.join(", "))}</p>` : ""}
       </div>
       <footer>
         <span class="tag">\u0423\u0447\u0435\u043d\u0438\u043a</span>
@@ -2018,10 +2063,10 @@ function teacherOptions() {
 }
 
 function instrumentOptions(selectedValue) {
-  const instruments = [...new Set(state.employees
-    .filter(isTeachingEmployee)
-    .map(employeeInstrument)
-    .filter(Boolean))].sort((a, b) => a.localeCompare(b, "ru"));
+  const instruments = uniqueTextValues([
+    ...state.employees.filter(isTeachingEmployee).flatMap(employeeInstrumentNames),
+    ...state.students.filter((student) => !student.isArchived).flatMap(studentInstrumentNames)
+  ]).sort((a, b) => a.localeCompare(b, "ru"));
   return `<option value="">\u0412\u0441\u0435 \u0438\u043d\u0441\u0442\u0440\u0443\u043c\u0435\u043d\u0442\u044b</option>` + instruments
     .map((instrument) => `<option value="${escapeAttr(instrument)}" ${instrument === selectedValue ? "selected" : ""}>${escapeHtml(instrument)}</option>`)
     .join("");
@@ -2035,20 +2080,56 @@ function refreshSelect(select, options, selectedValue) {
 }
 
 function employeeInstrument(employee) {
-  return String(employee?.instrument || "").trim();
+  return employeeInstrumentNames(employee).join(", ");
+}
+
+function employeeInstrumentNames(employee) {
+  if (!employee) return [];
+  return uniqueTextValues(employee.instruments?.length ? employee.instruments : employee.instrument ? [employee.instrument] : []);
 }
 
 function studentInstrumentNames(student) {
-  return [...new Set((student.assignedEmployeeIds || [])
+  const explicit = uniqueTextValues(student?.instruments || []);
+  if (explicit.length) return explicit.sort((a, b) => a.localeCompare(b, "ru"));
+  return [...new Set((student?.assignedEmployeeIds || [])
     .map((id) => state.employees.find((employee) => employee.id === id))
     .filter(Boolean)
-    .map(employeeInstrument)
+    .flatMap(employeeInstrumentNames)
     .filter(Boolean))].sort((a, b) => a.localeCompare(b, "ru"));
 }
 
-function matchesInstrument(employeeIds, instrument) {
+function matchesStudentInstrument(student, instrument) {
   if (!instrument) return true;
-  return (employeeIds || []).some((id) => employeeInstrument(state.employees.find((employee) => employee.id === id)) === instrument);
+  return studentInstrumentNames(student).includes(instrument);
+}
+
+function studentEducationForms(student) {
+  return uniqueTextValues(student?.educationForms?.length ? student.educationForms : [normalizeEducationForm(student?.educationForm)]);
+}
+
+function studentClassLabel(student) {
+  const enrollments = Array.isArray(student?.enrollments) ? student.enrollments : [];
+  const labels = uniqueTextValues(enrollments.map((entry) => {
+    const prefix = enrollments.length > 1 ? `${entry.instrument}: ` : "";
+    return entry.className ? `${prefix}${entry.className}` : "";
+  }));
+  return labels.length ? labels.join("; ") : String(student?.className || "");
+}
+
+function compareStudents(first, second, sortMode) {
+  const nameCompare = first.name.localeCompare(second.name, "ru");
+  if (sortMode === "instrument") {
+    return studentInstrumentNames(first).join(" / ").localeCompare(studentInstrumentNames(second).join(" / "), "ru") || nameCompare;
+  }
+  if (sortMode === "teacher") {
+    return assignedTeacherNames(first.assignedEmployeeIds || []).localeCompare(assignedTeacherNames(second.assignedEmployeeIds || []), "ru") || nameCompare;
+  }
+  if (sortMode === "class") {
+    const firstClass = Number(studentClassLabel(first).match(/\d+/)?.[0] || Number.MAX_SAFE_INTEGER);
+    const secondClass = Number(studentClassLabel(second).match(/\d+/)?.[0] || Number.MAX_SAFE_INTEGER);
+    return firstClass - secondClass || nameCompare;
+  }
+  return nameCompare;
 }
 
 function paginate(items, key) {
@@ -2174,9 +2255,9 @@ function visibleEmployees() {
 
 function visibleStudents() {
   if (isAdmin()) {
-    return state.students.filter((student) => (student.assignedEmployeeIds || []).includes(state.activeEmployeeId));
+    return state.students.filter((student) => !student.isArchived && (student.assignedEmployeeIds || []).includes(state.activeEmployeeId));
   }
-  return state.students.filter((student) => (student.assignedEmployeeIds || []).includes(state.sessionEmployeeId));
+  return state.students.filter((student) => !student.isArchived && (student.assignedEmployeeIds || []).includes(state.sessionEmployeeId));
 }
 
 function visibleGroups() {
@@ -2313,7 +2394,8 @@ function scheduleStartMinutes(row) {
 function studentOptions(selectedId) {
   return visibleStudents().map((student) => {
     const selected = student.id === selectedId ? "selected" : "";
-    const suffix = student.className ? `, ${student.className}` : "";
+    const classLabel = studentClassLabel(student);
+    const suffix = classLabel ? `, ${classLabel}` : "";
     return `<option value="${student.id}" ${selected}>${escapeHtml(student.name + suffix)}</option>`;
   }).join("");
 }
@@ -2450,7 +2532,7 @@ function renderStudentPickerSelected(ids) {
   if (!students.length) return `<div class="muted-note">Ученики пока не выбраны.</div>`;
   return students.map((student) => `
     <span class="student-token">
-      ${escapeHtml(student.name)} · ${escapeHtml(student.className || "без класса")}
+      ${escapeHtml(student.name)} · ${escapeHtml(studentClassLabel(student) || "без класса")}
       <button type="button" data-student-picker-remove="${student.id}" aria-label="Убрать ученика">&times;</button>
     </span>
   `).join("");
@@ -2469,6 +2551,7 @@ function renderStudentPickerResults(picker) {
   }
 
   const matches = state.students
+    .filter((student) => !student.isArchived)
     .filter((student) => normalizeText(student.name).includes(query))
     .sort((a, b) => a.name.localeCompare(b.name, "ru"))
     .slice(0, 20);
@@ -2476,7 +2559,7 @@ function renderStudentPickerResults(picker) {
   results.innerHTML = matches.length ? matches.map((student) => `
     <label class="checkbox-label">
       <input type="checkbox" data-student-picker-choice value="${student.id}" ${selected.includes(student.id) ? "checked" : ""} />
-      ${escapeHtml(student.name)} · ${escapeHtml(student.className || "без класса")}
+      ${escapeHtml(student.name)} · ${escapeHtml(studentClassLabel(student) || "без класса")}
     </label>
   `).join("") : `<div class="muted-note">Совпадений не найдено.</div>`;
 }
@@ -2546,6 +2629,16 @@ function educationFormOptions(selectedForm) {
     const selected = form === current ? "selected" : "";
     return `<option value="${form}" ${selected}>${form}</option>`;
   }).join("");
+}
+
+function educationFormCheckboxes(selectedForms) {
+  const selected = new Set(uniqueTextValues(selectedForms));
+  return educationForms.map((form) => `
+    <label class="checkbox-label">
+      <input type="checkbox" name="educationForms" value="${form}" ${selected.has(form) ? "checked" : ""} />
+      ${form}
+    </label>
+  `).join("");
 }
 
 function normalizeEducationForm(value) {

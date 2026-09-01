@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Журнал музыкальной школы</title>
-    <link rel="stylesheet" href="styles.css?v=20260831-4" />
+    <link rel="stylesheet" href="styles.css?v=20260901-1" />
   </head>
   <body>
     <section class="login-screen" id="loginScreen">
@@ -195,6 +195,15 @@
                   <select id="studentInstrumentFilter"></select>
                 </label>
                 <label>
+                  Сортировка
+                  <select id="studentSort">
+                    <option value="name">По имени</option>
+                    <option value="instrument">По инструменту</option>
+                    <option value="teacher">По преподавателю</option>
+                    <option value="class">По классу</option>
+                  </select>
+                </label>
+                <label>
                   Поиск ученика
                   <input type="search" id="studentSearch" placeholder="Начните вводить имя" autocomplete="off" />
                 </label>
@@ -278,6 +287,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js"></script>
-    <script src="app.js?v=20260831-4"></script>
+    <script src="app.js?v=20260901-1"></script>
   </body>
 </html>

@@ -1039,6 +1039,30 @@ label {
   min-height: 18px;
 }
 
+.compact-fieldset {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.compact-fieldset legend {
+  padding: 0 6px;
+  color: #34383d;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.inline-check-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+}
+
+.warning-note {
+  color: var(--rose);
+}
+
 input,
 select {
   width: 100%;
@@ -1124,6 +1148,10 @@ button:focus-visible {
   gap: 8px;
   padding: 12px;
   min-width: 0;
+}
+
+.students-filters {
+  grid-template-columns: repeat(4, minmax(170px, 1fr));
 }
 
 .compact-person-card h3 {
