@@ -146,6 +146,7 @@ document.addEventListener("click", (event) => {
   const [name, id] = action.dataset.action.split(":");
   if (name === "closeSchedule") closeScheduleRow(id);
   if (name === "scheduleDay") setActiveScheduleDay(Number(id));
+  if (name === "addParticipant") addScheduleFromParticipant(id, activeScheduleWeekday);
   if (name === "addScheduleDay") openScheduleModal(Number(id));
   if (name === "deleteSchedule") deleteScheduleRow(id);
   if (name === "archiveSchedule") openArchiveScheduleModal();
@@ -1645,7 +1646,8 @@ function renderSchedule() {
     <div class="schedule-tabs">
       ${workWeekdays.map((weekday) => `
         <button class="mini-button ${weekday === activeScheduleWeekday ? "active-day" : ""}" type="button" data-action="scheduleDay:${weekday}">
-          ${weekdays[weekday]}
+          <span class="day-name-full">${weekdays[weekday]}</span>
+          <span class="day-name-short">${weekdays[weekday].slice(0, 2)}</span>
         </button>
       `).join("")}
     </div>
@@ -1707,7 +1709,7 @@ function renderSchedule() {
 
 function renderDraggableStudent(student) {
   return `
-    <button class="schedule-student-chip" type="button" draggable="true" data-drag-participant="${student.id}">
+    <button class="schedule-student-chip" type="button" draggable="true" data-drag-participant="${student.id}" data-action="addParticipant:${student.id}" aria-label="Добавить ${escapeAttr(student.name)} в ${escapeAttr(weekdays[activeScheduleWeekday])}">
       <strong>${escapeHtml(student.name)}</strong>
       <span>${escapeHtml(student.className || "\u0431\u0435\u0437 \u043a\u043b\u0430\u0441\u0441\u0430")}</span>
     </button>
@@ -1716,7 +1718,7 @@ function renderDraggableStudent(student) {
 
 function renderDraggableGroup(group) {
   return `
-    <button class="schedule-student-chip group-chip" type="button" draggable="true" data-drag-participant="${group.id}">
+    <button class="schedule-student-chip group-chip" type="button" draggable="true" data-drag-participant="${group.id}" data-action="addParticipant:${group.id}" aria-label="Добавить ${escapeAttr(group.name)} в ${escapeAttr(weekdays[activeScheduleWeekday])}">
       <strong>${escapeHtml(group.name)}</strong>
       <span>${escapeHtml(group.className || "\u0433\u0440\u0443\u043f\u043f\u0430")}</span>
     </button>
@@ -1728,19 +1730,19 @@ function renderScheduleRow(row) {
   const time = scheduleTimeParts(row);
   return `
     <tr class="${row.effectiveTo ? "closed" : ""}" data-schedule-row="${row.id}">
-      <td>
+      <td class="schedule-time-cell" data-label="Время">
         <span class="time-pair">
           <input class="schedule-time-input" type="time" value="${escapeAttr(time.start)}" step="300" aria-label="Начало занятия" data-schedule-id="${row.id}" data-schedule-time data-time-bound="start" />
           <span class="time-dash">-</span>
           <input class="schedule-time-input" type="time" value="${escapeAttr(time.end)}" step="300" aria-label="Окончание занятия" data-schedule-id="${row.id}" data-schedule-time data-time-bound="end" />
         </span>
       </td>
-      <td class="participant-cell"><strong>${escapeHtml(participant?.name || "\u041d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u043e")}</strong></td>
-      <td class="class-cell">${escapeHtml(row.className || participant?.className || "")}</td>
-      <td><select class="type-input" data-schedule-id="${row.id}" data-schedule-field="type">${lessonTypeOptions(row.type)}</select></td>
-      <td><input class="hours-input calculated-hours" type="text" value="${escapeAttr(row.pedHours)}" data-schedule-field="pedHours" readonly tabindex="-1" /></td>
-      <td><input class="hours-input calculated-hours" type="text" value="${escapeAttr(row.kcHours)}" data-schedule-field="kcHours" readonly tabindex="-1" /></td>
-      <td><input class="room-input" type="text" inputmode="numeric" value="${escapeAttr(digitsOnly(row.room || ""))}" data-numeric-input data-schedule-id="${row.id}" data-schedule-field="room" /></td>
+      <td class="participant-cell" data-label="Ученик / группа"><strong>${escapeHtml(participant?.name || "\u041d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u043e")}</strong></td>
+      <td class="class-cell" data-label="Класс">${escapeHtml(row.className || participant?.className || "")}</td>
+      <td class="schedule-type-cell" data-label="Предмет"><select class="type-input" data-schedule-id="${row.id}" data-schedule-field="type">${lessonTypeOptions(row.type)}</select></td>
+      <td class="schedule-ped-cell" data-label="Пед."><input class="hours-input calculated-hours" type="text" value="${escapeAttr(row.pedHours)}" data-schedule-field="pedHours" readonly tabindex="-1" /></td>
+      <td class="schedule-kc-cell" data-label="Кц"><input class="hours-input calculated-hours" type="text" value="${escapeAttr(row.kcHours)}" data-schedule-field="kcHours" readonly tabindex="-1" /></td>
+      <td class="schedule-room-cell" data-label="Кабинет"><input class="room-input" type="text" inputmode="numeric" value="${escapeAttr(digitsOnly(row.room || ""))}" data-numeric-input data-schedule-id="${row.id}" data-schedule-field="room" /></td>
       <td class="schedule-row-actions">
         <button class="icon-danger-button" type="button" data-action="deleteSchedule:${row.id}" aria-label="\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0437\u0430\u043d\u044f\u0442\u0438\u0435" title="\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0437\u0430\u043d\u044f\u0442\u0438\u0435">&times;</button>
       </td>
@@ -1882,7 +1884,7 @@ function addScheduleFromParticipant(participantId, weekday) {
     studentId: participant.id,
     groupId: "",
     className: participant.className || "",
-    type: participant.kind === "group" && participant.name === "\u041e\u0440\u043a\u0435\u0441\u0442\u0440" ? "\u041e\u0440\u043a\u0435\u0441\u0442\u0440" : "\u0418\u043d\u0434\u0438\u0432\u0438\u0434\u0443\u0430\u043b\u044c\u043d\u044b\u0439 \u0443\u0440\u043e\u043a",
+    type: participant.kind === "group" && participant.name === "\u041e\u0440\u043a\u0435\u0441\u0442\u0440" ? "\u041e\u0440\u043a\u0435\u0441\u0442\u0440" : "\u0421\u043f\u0435\u0446\u0438\u0430\u043b\u044c\u043d\u043e\u0441\u0442\u044c",
     pedHours: 1,
     kcHours: 0,
     room: ""
