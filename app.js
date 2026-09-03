@@ -240,6 +240,12 @@ document.addEventListener("change", (event) => {
 });
 
 document.addEventListener("input", (event) => {
+  const scheduleStudentSearch = event.target.closest("[data-schedule-student-search]");
+  if (scheduleStudentSearch) {
+    filterScheduleStudents(scheduleStudentSearch);
+    return;
+  }
+
   const studentSearch = event.target.closest("[data-student-picker-search]");
   if (studentSearch) {
     renderStudentPickerResults(studentSearch.closest("[data-student-picker]"));
@@ -1619,9 +1625,12 @@ function renderDashboard() {
 function renderLessonCard(item) {
   return `
     <article class="lesson-card">
-      <strong>${formatDate(item.date)}</strong>
-      <div>
-        <b>${escapeHtml(item.time)} · ${escapeHtml(item.studentName)}</b>
+      <div class="lesson-when">
+        <strong>${formatDate(item.date)}</strong>
+        <span>Время: <b>${escapeHtml(item.time)}</b></span>
+      </div>
+      <div class="lesson-details">
+        <b>${escapeHtml(item.studentName)}</b>
         <p>${escapeHtml(item.type)} · ${escapeHtml(item.className || "без класса")}</p>
       </div>
       <span class="tag">${formatNumber(item.pedHours)} пед. / ${formatNumber(item.kcHours)} конц.</span>
@@ -1655,10 +1664,18 @@ function renderSchedule() {
       <section class="schedule-roster">
         <div class="schedule-roster-header">
           <h3>\u0414\u043e\u0441\u0442\u0443\u043f\u043d\u044b\u0435 \u0443\u0447\u0435\u043d\u0438\u043a\u0438</h3>
-          <p>${students.length} \u0443\u0447.</p>
+          <p data-schedule-student-count>${students.length} \u0443\u0447.</p>
         </div>
+        ${students.length ? `
+          <div class="schedule-roster-search">
+            <label>
+              Найти ученика
+              <input type="search" placeholder="Начните вводить фамилию" autocomplete="off" data-schedule-student-search />
+            </label>
+          </div>
+        ` : ""}
         <div class="schedule-student-list">
-          ${students.length ? students.map(renderDraggableStudent).join("") : `<div class="empty-state">\u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440 \u0435\u0449\u0435 \u043d\u0435 \u043d\u0430\u0437\u043d\u0430\u0447\u0438\u043b \u0443\u0447\u0435\u043d\u0438\u043a\u043e\u0432.</div>`}
+          ${students.length ? `${students.map(renderDraggableStudent).join("")}<div class="schedule-search-empty is-hidden" data-schedule-search-empty>Ученики не найдены.</div>` : `<div class="empty-state">\u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440 \u0435\u0449\u0435 \u043d\u0435 \u043d\u0430\u0437\u043d\u0430\u0447\u0438\u043b \u0443\u0447\u0435\u043d\u0438\u043a\u043e\u0432.</div>`}
         </div>
       </section>
       <section class="schedule-roster schedule-group-roster">
@@ -1709,11 +1726,30 @@ function renderSchedule() {
 
 function renderDraggableStudent(student) {
   return `
-    <button class="schedule-student-chip" type="button" draggable="true" data-drag-participant="${student.id}" data-action="addParticipant:${student.id}" aria-label="Добавить ${escapeAttr(student.name)} в ${escapeAttr(weekdays[activeScheduleWeekday])}">
+    <button class="schedule-student-chip" type="button" draggable="true" data-drag-participant="${student.id}" data-schedule-student-name="${escapeAttr(student.name.toLocaleLowerCase("ru"))}" data-action="addParticipant:${student.id}" aria-label="Добавить ${escapeAttr(student.name)} в ${escapeAttr(weekdays[activeScheduleWeekday])}">
       <strong>${escapeHtml(student.name)}</strong>
       <span>${escapeHtml(student.className || "\u0431\u0435\u0437 \u043a\u043b\u0430\u0441\u0441\u0430")}</span>
     </button>
   `;
+}
+
+function filterScheduleStudents(input) {
+  const roster = input.closest(".schedule-roster");
+  if (!roster) return;
+
+  const query = input.value.trim().toLocaleLowerCase("ru");
+  const students = [...roster.querySelectorAll("[data-schedule-student-name]")];
+  let visibleCount = 0;
+
+  students.forEach((student) => {
+    const matches = !query || student.dataset.scheduleStudentName.includes(query);
+    student.classList.toggle("is-hidden", !matches);
+    if (matches) visibleCount += 1;
+  });
+
+  const count = roster.querySelector("[data-schedule-student-count]");
+  if (count) count.textContent = query ? `${visibleCount} из ${students.length}` : `${students.length} уч.`;
+  roster.querySelector("[data-schedule-search-empty]")?.classList.toggle("is-hidden", visibleCount > 0);
 }
 
 function renderDraggableGroup(group) {

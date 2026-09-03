@@ -616,6 +616,27 @@ label {
   font-size: 13px;
 }
 
+.schedule-roster-search {
+  padding: 10px 12px 0;
+  background: #fff;
+}
+
+.schedule-roster-search label {
+  gap: 5px;
+}
+
+.schedule-roster-search input {
+  min-height: 40px;
+}
+
+.schedule-search-empty {
+  width: 100%;
+  padding: 10px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 13px;
+}
+
 .schedule-student-list {
   display: flex;
   flex-wrap: wrap;
@@ -1460,8 +1481,27 @@ button:focus-visible {
 }
 
 .lesson-card {
-  grid-template-columns: minmax(110px, auto) 1fr auto;
+  grid-template-columns: minmax(150px, auto) 1fr auto;
   align-items: center;
+}
+
+.lesson-when {
+  display: grid;
+  gap: 4px;
+}
+
+.lesson-when span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.lesson-when span b {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.lesson-details {
+  min-width: 0;
 }
 
 .lesson-card strong,
@@ -1981,6 +2021,80 @@ th {
 }
 
 @media (max-width: 760px) {
+  html,
+  body {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .login-screen {
+    align-items: start;
+    padding: 18px 12px;
+  }
+
+  .login-card {
+    gap: 16px;
+    padding: 20px;
+  }
+
+  .modal-overlay {
+    padding: 10px;
+  }
+
+  .modal-window,
+  .modal-window:has(.assignment-grid) {
+    width: 100%;
+    max-height: calc(100dvh - 20px);
+    padding: 18px 14px 16px;
+  }
+
+  .modal-window .form-header {
+    min-width: 0;
+    padding-right: 42px;
+  }
+
+  .modal-window .form-header h3 {
+    overflow-wrap: anywhere;
+  }
+
+  .modal-close {
+    top: 10px;
+    right: 10px;
+    width: 38px;
+    min-height: 38px;
+  }
+
+  .modal-form,
+  .schedule-modal-form,
+  .schedule-time-modal,
+  .assignment-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .schedule-modal-form > *,
+  .schedule-modal-form .primary-button {
+    grid-column: 1;
+  }
+
+  .assignment-grid > section,
+  .student-picker,
+  .credential-editor {
+    min-width: 0;
+  }
+
+  .student-picker-results,
+  .assignment-grid .check-list {
+    max-height: min(32dvh, 260px);
+  }
+
+  .student-token {
+    overflow-wrap: anywhere;
+  }
+
+  .credential-actions > button {
+    flex: 1 1 130px;
+  }
+
   .sidebar {
     gap: 14px;
     padding: 14px 14px 0;
@@ -2023,6 +2137,122 @@ th {
 
   .workspace {
     padding: 14px;
+  }
+
+  .top-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .top-actions .sync-status {
+    flex: 1 0 100%;
+    min-width: 0;
+    text-align: left;
+  }
+
+  .top-actions button {
+    flex: 1 1 140px;
+    min-width: 0;
+  }
+
+  .content-panel,
+  .editor-panel,
+  .people-section,
+  .calendar-month {
+    min-width: 0;
+  }
+
+  .panel-toolbar {
+    padding: 14px;
+  }
+
+  .panel-toolbar > .mini-button {
+    align-self: flex-end;
+    width: 44px;
+    min-height: 44px;
+    padding: 0;
+  }
+
+  .journal-controls,
+  .people-filters,
+  .cards-list,
+  .cards-grid {
+    padding: 12px;
+  }
+
+  .journal-controls .form-button {
+    width: 100%;
+    min-height: 46px;
+  }
+
+  .journal-scroll {
+    max-width: 100%;
+    overscroll-behavior-inline: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .journal-table .student-cell {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: #fff;
+    box-shadow: 1px 0 0 var(--line);
+  }
+
+  .journal-table thead .student-cell {
+    z-index: 3;
+    background: #fbfcfa;
+  }
+
+  .journal-totals {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .people-list-grid,
+  .calendar-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .compact-person-card footer {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .card-actions {
+    flex-wrap: wrap;
+    justify-content: stretch;
+  }
+
+  .card-actions .mini-button,
+  .card-actions .danger-button {
+    flex: 1 1 120px;
+    min-width: 0;
+    white-space: normal;
+  }
+
+  .calendar-grid {
+    gap: 12px;
+    padding: 10px;
+  }
+
+  .calendar-day {
+    min-height: 58px;
+    padding: 6px;
+  }
+
+  .calendar-day span {
+    display: none;
+  }
+
+  .calendar-day.holiday-day span,
+  .calendar-day.weekend-day span {
+    padding-right: 0;
+  }
+
+  .calendar-day button {
+    top: 4px;
+    right: 4px;
+    width: 20px;
+    height: 20px;
   }
 
   .topbar {
@@ -2068,6 +2298,10 @@ th {
     white-space: normal;
   }
 
+  .schedule-toolbar button:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
   .schedule-tabs {
     display: flex;
     gap: 6px;
@@ -2103,6 +2337,15 @@ th {
   .schedule-roster-header h3,
   .schedule-day-title h3 {
     font-size: 17px;
+  }
+
+  .schedule-roster-search {
+    padding: 10px;
+  }
+
+  .schedule-roster-search input {
+    min-height: 44px;
+    font-size: 16px;
   }
 
   .schedule-student-list {
@@ -2279,7 +2522,7 @@ th {
 @media (max-width: 640px) {
   .sidebar,
   .workspace {
-    padding: 18px;
+    padding: 12px;
   }
 
   .topbar,
@@ -2293,5 +2536,28 @@ th {
 
   .pagination div {
     justify-content: flex-start;
+  }
+
+  .lesson-card {
+    gap: 8px;
+    padding: 14px;
+  }
+
+  .lesson-when {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: baseline;
+    gap: 8px 14px;
+  }
+
+  .lesson-card > .tag {
+    justify-self: start;
+  }
+
+  .pagination {
+    padding: 12px;
+  }
+
+  .pagination div {
+    max-width: 100%;
   }
 }
