@@ -241,7 +241,7 @@ document.addEventListener("change", (event) => {
     event.target.value = type;
     return;
   }
-  if (event.target.matches('[data-schedule-hours]')) { changeAcademicHours(event.target); return; }
+  if (event.target.matches('[data-hour-field]')) { changeScheduleHours(event.target); return; }
 
   const scheduleField = event.target.closest("[data-schedule-field]");
   if (scheduleField) updateScheduleField(scheduleField);
@@ -250,7 +250,8 @@ document.addEventListener("change", (event) => {
 document.addEventListener("input", (event) => {
   if (event.target.matches('[data-modal-start], [data-modal-hours]')) {
     const form = event.target.closest('form');
-    const end = SchoolModel.endTime(form.elements.startTime.value, form.elements.academicHours.value);
+    const hours = Number(form.elements.pedHours.value.replace(',', '.')) + Number(form.elements.kcHours.value.replace(',', '.'));
+    const end = SchoolModel.endTime(form.elements.startTime.value, hours);
     form.elements.endTime.value = end;
     form.elements.endTime.setCustomValidity(end ? '' : 'Проверьте начало и длительность занятия');
     return;
@@ -280,7 +281,7 @@ document.addEventListener("input", (event) => {
 });
 
 document.addEventListener("focusout", (event) => {
-  if (event.target.matches('[data-schedule-hours]')) { changeAcademicHours(event.target); return; }
+  if (event.target.matches('[data-hour-field]')) { changeScheduleHours(event.target); return; }
   const scheduleTime = event.target.closest("[data-schedule-time]");
   if (scheduleTime) commitScheduleTime(scheduleTime);
 
@@ -1025,14 +1026,15 @@ function openScheduleModal(weekday) {
     <form class="modal-form schedule-modal-form" data-modal-form="schedule" data-weekday="${weekday}">
       <div class="form-grid two schedule-time-modal">
         <label>Начало<input type="time" name="startTime" step="300" data-modal-start required /></label>
-        <label>Учебных часов (40 мин)<input type="text" inputmode="decimal" name="academicHours" value="1" data-modal-hours required /></label>
+        <label>Пед.<input type="text" inputmode="decimal" name="pedHours" value="1" data-modal-hours required pattern="[0-9]+([.,][0-9]+)?" /></label>
+        <label>Кц<input type="text" inputmode="decimal" name="kcHours" value="0" data-modal-hours required pattern="[0-9]+([.,][0-9]+)?" /></label>
         <label>Окончание<input type="time" name="endTime" step="300" required /></label>
       </div>
       <label>Ученик / группа<select name="studentId" data-modal-participant>${participantOptions(participant.id)}</select></label>
       <label>Предмет<select name="type" data-modal-lesson-type>${lessonTypeOptions("Специальность")}</select></label>
       <label><span data-course-label>Предмет · инструмент · класс</span><select name="enrollmentId" data-modal-course></select></label>
       <label>Класс<input type="text" name="className" value="${escapeAttr(participant.className || "")}" data-modal-class readonly /></label>
-      <p class="muted-note">Педагогические или концертмейстерские часы рассчитаются автоматически: 40 минут = 1 час.</p>
+      <p class="muted-note">Укажите часы в Пед. или Кц: 1 час = 40 минут. Окончание рассчитается автоматически.</p>
       <label>Кабинет<input type="text" inputmode="numeric" name="room" placeholder="18" data-numeric-input /></label>
       <button class="primary-button" type="submit">Добавить</button>
     </form>
@@ -1075,17 +1077,20 @@ function initializeScheduleCourse(row) {
   return row;
 }
 
-function changeAcademicHours(input) {
+function changeScheduleHours(input) {
   const row = state.schedule.find(r => r.id === input.dataset.scheduleId);
   if (!row) return;
   const start = scheduleTimeParts(row).start;
+  const field = input.dataset.scheduleField;
   const value = Number(input.value.replace(',', '.'));
-  if (value === row.durationHours) return;
-  const end = SchoolModel.endTime(start, value);
-  input.setCustomValidity(Number.isFinite(value) && value > 0 && (!start || end) ? '' : 'Введите положительное число часов, занятие должно закончиться до полуночи');
+  const total = value + Number(row[field === 'pedHours' ? 'kcHours' : 'pedHours'] || 0);
+  const end = SchoolModel.endTime(start, total);
+  input.setCustomValidity(input.value.trim() && Number.isFinite(value) && value >= 0 && (!start || total === 0 || end) ? '' : 'Введите неотрицательное число часов; окончание должно быть до полуночи');
   if (!input.reportValidity()) return;
-  row.durationHours = value;
-  if (start) { row.time = `${start}-${end}`; updateHoursFromTime(row); }
+  if (value === Number(row[field])) return;
+  row[field] = value;
+  row.durationHours = total;
+  if (start && end) row.time = `${start}-${end}`;
   refreshGeneratedJournalForScheduleChange(row);
   persistAndRender();
 }
@@ -1208,7 +1213,7 @@ function reorderScheduleRows(tbody) {
 }
 
 function applyScheduleInput(input) {
-  if (input.matches('[data-schedule-hours]')) { changeAcademicHours(input); return; }
+  if (input.matches('[data-hour-field]')) { changeScheduleHours(input); return; }
   if (input.matches("[data-schedule-time]")) {
     commitScheduleTime(input);
     return;
@@ -1464,15 +1469,19 @@ function addScheduleFromModal(form) {
     groupId: "",
     className: participant.className || "",
     type: form.elements.type.value,
-    pedHours: 0,
-    kcHours: 0,
+    pedHours: Number(form.elements.pedHours.value.replace(',', '.')),
+    kcHours: Number(form.elements.kcHours.value.replace(',', '.')),
     room: digitsOnly(form.elements.room.value)
   };
   const course = courseOptionsFor(participant.id).find(e => e.id === form.elements.enrollmentId.value);
   if (courseOptionsFor(participant.id).length && !course) { form.elements.enrollmentId.reportValidity(); return; }
   SchoolModel.applyCourse(row, course);
   row.durationHours = (minutesFromTime(end) - minutesFromTime(start)) / 40;
-  updateHoursFromTime(row);
+  if (!Number.isFinite(row.pedHours) || !Number.isFinite(row.kcHours) || row.pedHours < 0 || row.kcHours < 0 || row.durationHours <= 0) {
+    form.elements.pedHours.setCustomValidity("Введите неотрицательные часы; сумма Пед. и Кц должна быть больше нуля");
+    form.elements.pedHours.reportValidity();
+    return;
+  }
   state.schedule.push(row);
   closeModal();
   persistAndRender();
@@ -1872,13 +1881,12 @@ function renderScheduleRow(row) {
           <span class="time-dash">-</span>
           <input class="schedule-time-input" type="time" value="${escapeAttr(time.end)}" step="300" aria-label="Окончание занятия" data-schedule-id="${row.id}" data-schedule-time data-time-bound="end" />
         </span>
-        <label class="academic-hours-label">Уч. часов<input type="text" inputmode="decimal" value="${escapeAttr(row.durationHours || Number(row.pedHours || 0) + Number(row.kcHours || 0) || 1)}" data-schedule-hours data-schedule-id="${escapeAttr(row.id)}" aria-label="Учебных часов по 40 минут" /></label>
       </td>
       <td class="participant-cell" data-label="Ученик / группа"><strong>${escapeHtml(participant?.name || "Не найдено")}</strong>${simple ? '' : courseSelect}</td>
       <td class="class-cell" data-label="Класс">${escapeHtml(row.className || (courseOptionsFor(row.studentId, row.employeeId).length ? 'Выберите предмет' : participant?.className || ""))}</td>
       <td class="schedule-type-cell" data-label="Предмет"><select class="type-input" aria-label="Предмет" data-schedule-id="${row.id}" data-schedule-field="type">${lessonTypeOptions(row.type)}</select>${simple ? courseSelect : ''}</td>
-      <td class="schedule-ped-cell" data-label="Пед."><input class="hours-input calculated-hours" type="text" value="${escapeAttr(row.pedHours)}" data-schedule-field="pedHours" readonly tabindex="-1" /></td>
-      <td class="schedule-kc-cell" data-label="Кц"><input class="hours-input calculated-hours" type="text" value="${escapeAttr(row.kcHours)}" data-schedule-field="kcHours" readonly tabindex="-1" /></td>
+      <td class="schedule-ped-cell" data-label="Пед."><input class="hours-input" type="text" inputmode="decimal" aria-label="Педагогические часы" value="${escapeAttr(row.pedHours)}" data-schedule-id="${escapeAttr(row.id)}" data-schedule-field="pedHours" data-hour-field /></td>
+      <td class="schedule-kc-cell" data-label="Кц"><input class="hours-input" type="text" inputmode="decimal" aria-label="Концертмейстерские часы" value="${escapeAttr(row.kcHours)}" data-schedule-id="${escapeAttr(row.id)}" data-schedule-field="kcHours" data-hour-field /></td>
       <td class="schedule-room-cell" data-label="Кабинет"><input class="room-input" type="text" inputmode="numeric" value="${escapeAttr(digitsOnly(row.room || ""))}" data-numeric-input data-schedule-id="${row.id}" data-schedule-field="room" /></td>
       <td class="schedule-row-actions">
         <button class="icon-danger-button" type="button" data-action="deleteSchedule:${row.id}" aria-label="\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0437\u0430\u043d\u044f\u0442\u0438\u0435" title="\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0437\u0430\u043d\u044f\u0442\u0438\u0435">&times;</button>
@@ -2693,7 +2701,11 @@ function updateHoursFromTime(row) {
   const units = lessonUnitsFromTime(row.time);
   if (units === null) return;
 
-  if (row.type === "Концертмейстер") {
+  const total = Number(row.pedHours || 0) + Number(row.kcHours || 0);
+  if (total > 0) {
+    row.kcHours = Number((units * Number(row.kcHours || 0) / total).toFixed(2));
+    row.pedHours = Number((units - row.kcHours).toFixed(2));
+  } else if (row.type === "Концертмейстер") {
     row.kcHours = units;
     row.pedHours = 0;
   } else {
