@@ -1660,6 +1660,27 @@ th {
   font-weight: 800;
 }
 
+.grade-control {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 32px;
+  min-height: 30px;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 700;
+}
+.grade-control .grade-select {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.grade-control:focus-within { outline: 2px solid var(--accent); border-radius: 5px; }
+.grade-value { pointer-events: none; }
+.academic-hours-label { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-top: 8px; }
+.schedule-table .academic-hours-label input { width: 66px; }
+.schedule-course-select { display: block; max-width: 100%; margin-top: 8px; }
 .grade-select {
   width: 100%;
   min-height: 28px;
