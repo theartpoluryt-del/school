@@ -9,6 +9,14 @@
   function courseLabel(e) {
     return [e.subject || 'Специальность', e.instrument, e.className, e.educationForm].filter(Boolean).join(' · ');
   }
+  function courseChoices(courses, type) {
+    const wind = courses.filter(e => e.subject === 'Специальность' && ['Флейта', 'Саксофон'].includes(e.instrument));
+    const simple = type === 'Специальность' && wind.length > 0;
+    const items = simple ? wind : courses;
+    return { simple, items: items.map(e => ({ ...e, label: simple
+      ? e.instrument + (items.filter(other => other.instrument === e.instrument).length > 1 ? ` · ${e.className}` : '')
+      : courseLabel(e) })) };
+  }
   function applyCourse(row, course) {
     if (!course) return row;
     Object.assign(row, { needsCourseSelection: false, enrollmentId: course.id, instrument: course.instrument || '', program: course.program || '',
@@ -27,7 +35,7 @@
     const type = record.type || 'Без предмета';
     return record.instrument && (type === 'Специальность' || type === 'Музыкальный инструмент') ? `${type}: ${record.instrument}` : type;
   }
-  const api = { courses, courseLabel, applyCourse, endTime, subjectLabel };
+  const api = { courses, courseLabel, courseChoices, applyCourse, endTime, subjectLabel };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SchoolModel = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

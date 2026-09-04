@@ -235,6 +235,12 @@ document.addEventListener("change", (event) => {
   }
 
   if (event.target.matches('[data-modal-course]')) { applyModalCourse(event.target.closest('form')); return; }
+  if (event.target.matches('[data-modal-lesson-type]')) {
+    const type = event.target.value;
+    refreshModalCourses(event.target.closest('form'));
+    event.target.value = type;
+    return;
+  }
   if (event.target.matches('[data-schedule-hours]')) { changeAcademicHours(event.target); return; }
 
   const scheduleField = event.target.closest("[data-schedule-field]");
@@ -1023,8 +1029,8 @@ function openScheduleModal(weekday) {
         <label>Окончание<input type="time" name="endTime" step="300" required /></label>
       </div>
       <label>Ученик / группа<select name="studentId" data-modal-participant>${participantOptions(participant.id)}</select></label>
-      <label>Предмет · инструмент · класс<select name="enrollmentId" data-modal-course></select></label>
-      <label>Вид<select name="type">${lessonTypeOptions("Специальность")}</select></label>
+      <label>Предмет<select name="type" data-modal-lesson-type>${lessonTypeOptions("Специальность")}</select></label>
+      <label><span data-course-label>Предмет · инструмент · класс</span><select name="enrollmentId" data-modal-course></select></label>
       <label>Класс<input type="text" name="className" value="${escapeAttr(participant.className || "")}" data-modal-class readonly /></label>
       <p class="muted-note">Педагогические или концертмейстерские часы рассчитаются автоматически: 40 минут = 1 час.</p>
       <label>Кабинет<input type="text" inputmode="numeric" name="room" placeholder="18" data-numeric-input /></label>
@@ -1039,17 +1045,19 @@ function courseOptionsFor(participantId, employeeId = state.activeEmployeeId) {
 }
 
 function courseSelectOptions(row) {
-  const courses = courseOptionsFor(row.studentId, row.employeeId);
-  return `<option value="">${courses.length ? 'Выберите предмет и инструмент' : 'Нет отдельных привязок'}</option>` + courses.map(e =>
-    `<option value="${escapeAttr(e.id)}" ${row.enrollmentId === e.id ? 'selected' : ''}>${escapeHtml(SchoolModel.courseLabel(e))}</option>`).join('');
+  const { simple, items } = SchoolModel.courseChoices(courseOptionsFor(row.studentId, row.employeeId), row.type);
+  return `<option value="" disabled ${items.some(e => e.id === row.enrollmentId) ? '' : 'selected'}>${items.length ? (simple ? 'Выберите инструмент' : 'Выберите предмет и инструмент') : 'Нет отдельных привязок'}</option>` + items.map(e =>
+    `<option value="${escapeAttr(e.id)}" ${row.enrollmentId === e.id ? 'selected' : ''}>${escapeHtml(e.label)}</option>`).join('');
 }
 
 function refreshModalCourses(form) {
   if (!form) return;
-  const row = { studentId: form.elements.studentId.value, employeeId: state.activeEmployeeId };
-  const courses = courseOptionsFor(row.studentId);
-  row.enrollmentId = courses.length === 1 ? courses[0].id : '';
+  const row = { studentId: form.elements.studentId.value, employeeId: state.activeEmployeeId, type: form.elements.type.value };
+  const {simple, items: courses} = SchoolModel.courseChoices(courseOptionsFor(row.studentId), row.type);
+  form.querySelector('[data-course-label]').textContent = simple ? 'Инструмент' : 'Предмет · инструмент · класс';
+  row.enrollmentId = courses.some(e => e.id === form.elements.enrollmentId.value) ? form.elements.enrollmentId.value : courses.length === 1 ? courses[0].id : '';
   form.elements.enrollmentId.innerHTML = courseSelectOptions(row);
+  form.elements.enrollmentId.value = row.enrollmentId;
   form.elements.enrollmentId.required = courses.length > 0;
   applyModalCourse(form);
 }
@@ -1854,6 +1862,8 @@ function renderDraggableGroup(group) {
 function renderScheduleRow(row) {
   const participant = participantById(row.studentId);
   const time = scheduleTimeParts(row);
+  const simple = SchoolModel.courseChoices(courseOptionsFor(row.studentId, row.employeeId), row.type).simple;
+  const courseSelect = `<select class="schedule-course-select" aria-label="${simple ? 'Инструмент' : 'Предмет, инструмент и класс'}" data-schedule-id="${escapeAttr(row.id)}" data-schedule-field="enrollmentId">${courseSelectOptions(row)}</select>`;
   return `
     <tr class="${row.effectiveTo ? "closed" : ""}" data-schedule-row="${row.id}">
       <td class="schedule-time-cell" data-label="Время">
@@ -1864,9 +1874,9 @@ function renderScheduleRow(row) {
         </span>
         <label class="academic-hours-label">Уч. часов<input type="text" inputmode="decimal" value="${escapeAttr(row.durationHours || Number(row.pedHours || 0) + Number(row.kcHours || 0) || 1)}" data-schedule-hours data-schedule-id="${escapeAttr(row.id)}" aria-label="Учебных часов по 40 минут" /></label>
       </td>
-      <td class="participant-cell" data-label="Ученик / группа"><strong>${escapeHtml(participant?.name || "Не найдено")}</strong><select class="schedule-course-select" aria-label="Предмет, инструмент и класс" data-schedule-id="${escapeAttr(row.id)}" data-schedule-field="enrollmentId">${courseSelectOptions(row)}</select></td>
+      <td class="participant-cell" data-label="Ученик / группа"><strong>${escapeHtml(participant?.name || "Не найдено")}</strong>${simple ? '' : courseSelect}</td>
       <td class="class-cell" data-label="Класс">${escapeHtml(row.className || (courseOptionsFor(row.studentId, row.employeeId).length ? 'Выберите предмет' : participant?.className || ""))}</td>
-      <td class="schedule-type-cell" data-label="Предмет"><select class="type-input" data-schedule-id="${row.id}" data-schedule-field="type">${lessonTypeOptions(row.type)}</select></td>
+      <td class="schedule-type-cell" data-label="Предмет"><select class="type-input" aria-label="Предмет" data-schedule-id="${row.id}" data-schedule-field="type">${lessonTypeOptions(row.type)}</select>${simple ? courseSelect : ''}</td>
       <td class="schedule-ped-cell" data-label="Пед."><input class="hours-input calculated-hours" type="text" value="${escapeAttr(row.pedHours)}" data-schedule-field="pedHours" readonly tabindex="-1" /></td>
       <td class="schedule-kc-cell" data-label="Кц"><input class="hours-input calculated-hours" type="text" value="${escapeAttr(row.kcHours)}" data-schedule-field="kcHours" readonly tabindex="-1" /></td>
       <td class="schedule-room-cell" data-label="Кабинет"><input class="room-input" type="text" inputmode="numeric" value="${escapeAttr(digitsOnly(row.room || ""))}" data-numeric-input data-schedule-id="${row.id}" data-schedule-field="room" /></td>
