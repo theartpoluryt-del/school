@@ -1688,6 +1688,7 @@ function refreshJournalMonth(month, asOf, employeeId) {
         enrollmentId: row.enrollmentId || '',
         instrument: row.instrument || '',
         program: row.program || '',
+        room: row.room || '',
         type: row.type,
         pedHours: row.pedHours,
         kcHours: row.kcHours,
@@ -1993,7 +1994,7 @@ function renderSchedulePrintRow(row) {
   return `
     <tr>
       <td>${escapeHtml(weekdays[row.weekday] || "")}</td>
-      <td><strong>${escapeHtml(participant?.name || "Не найдено")}</strong><small>${escapeHtml(row.type || "")}</small></td>
+      <td><strong>${escapeHtml(participant?.name || "Не найдено")}</strong><small>${escapeHtml(SchoolModel.subjectLabel(row))}</small></td>
       <td>${escapeHtml(row.className || participant?.className || "")}</td>
       <td>${formatNumber(row.pedHours)}</td>
       <td>${formatNumber(row.kcHours)}</td>
@@ -2132,10 +2133,14 @@ function renderJournalCell(entry, date) {
 
   const buttons = dayRecords.map((record) => {
     const grade = String(record.grade ?? "");
+    const schedule = state.schedule.find((row) => row.id === record.scheduleId);
+    const room = record.room || schedule?.room || '';
+    const details = [record.time, room ? `каб. ${room}` : '', `Пед. ${formatNumber(record.pedHours)}`, `Кц ${formatNumber(record.kcHours)}`]
+      .filter(Boolean).join(' · ');
     return `
       <span class="grade-control"><span class="grade-value" aria-hidden="true">${escapeHtml(grade || '•')}</span><select class="grade-select" aria-label="Оценка ${escapeAttr(entry.name)} за ${escapeAttr(date)}" title="${escapeHtml(record.time)} ${escapeHtml(SchoolModel.subjectLabel(record))} · ${formatNumber(record.pedHours)} пед. / ${formatNumber(record.kcHours)} конц." data-grade-record="${record.id}">
         ${gradeOptions(grade)}
-      </select></span>
+      </select><small class="print-lesson-details">${escapeHtml(details)}</small></span>
     `;
   }).join("");
 

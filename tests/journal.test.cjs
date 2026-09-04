@@ -40,5 +40,6 @@ test('numeric and string grades render a visible value and selected option',()=>
     const html=c.renderJournalCell({name:'Test',records:[{id:'r',date:'2026-09-14',grade}]},'2026-09-14');
     assert(html.includes(`aria-hidden="true">${grade}</span>`));
     assert(html.includes(`value="${grade}" selected`));
+    assert(html.includes('Пед.'));
   }
 });

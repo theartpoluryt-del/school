@@ -1670,6 +1670,10 @@ th {
   font-size: 14px;
   font-weight: 700;
 }
+
+.print-lesson-details {
+  display: none;
+}
 .grade-control .grade-select {
   position: absolute;
   inset: 0;
@@ -1849,6 +1853,16 @@ th {
     color: #000;
     font-size: 9px;
     line-height: 1;
+  }
+
+  .print-lesson-details {
+    display: block;
+    margin-top: 1px;
+    color: #000;
+    font-size: 6px;
+    line-height: 1.05;
+    font-weight: 500;
+    overflow-wrap: anywhere;
   }
 
   .cell-stack {
