@@ -412,10 +412,16 @@ function migrateState(source) {
     row.time = normalizeScheduleTime(row.time) || row.time;
     row.room = digitsOnly(row.room || "");
     const courses = SchoolModel.courses(data.students.find(s => s.id === row.studentId), row.employeeId);
-    if (!row.enrollmentId && courses.length === 1 && !row.archiveId) SchoolModel.applyCourse(row, courses[0]);
+    if (!row.enrollmentId && courses.length === 1 && !row.archiveId && ['Специальность', 'Музыкальный инструмент'].includes(row.type)) SchoolModel.applyCourse(row, courses[0]);
   });
   const scheduleIds = new Set(data.schedule.map((row) => row.id));
   data.records = data.records.filter((record) => scheduleIds.has(record.scheduleId));
+  data.records.forEach((record) => {
+    const row = data.schedule.find(item => item.id === record.scheduleId);
+    if (record.enrollmentId || !row?.enrollmentId || row.archiveId || !['Специальность', 'Музыкальный инструмент'].includes(record.type)) return;
+    const course = SchoolModel.courses(data.students.find(student => student.id === record.studentId), record.employeeId).find(item => item.id === row.enrollmentId);
+    if (course) SchoolModel.applyCourse(record, course);
+  });
   data.records.forEach((record) => {
     if (record.type === "Индивидуальный урок") record.type = "Специальность";
     const participant = [...data.students, ...data.groups].find((item) => item.id === record.studentId);
