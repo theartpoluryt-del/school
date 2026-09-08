@@ -1577,8 +1577,12 @@ th {
 
 .journal-table th,
 .journal-table td {
-  padding: 8px;
+  padding: 2px 8px;
   text-align: center;
+}
+
+.journal-table th {
+  padding: 6px 8px;
 }
 
 .journal-table .student-cell {
@@ -1680,10 +1684,15 @@ th {
 .lesson-members-button { margin: 8px 0; }
 .lesson-roster { margin-bottom: 6px; font-weight: 400; font-size: 12px; }
 .lesson-roster summary { cursor: pointer; color: var(--accent-strong); }
-.journal-lesson { display: grid; justify-items: center; gap: 3px; padding: 3px 0; }
+.journal-lesson { display: grid; justify-items: center; gap: 2px; }
 .journal-roster-label { max-width: 160px; font-size: 10px; font-weight: 500; color: var(--accent-strong); }
 .journal-roster-edit { cursor: pointer; padding: 5px; border: 1px solid var(--line); border-radius: 5px; color: var(--accent-strong); background: white; font-size: 10px; }
-.journal-roster-edit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.journal-roster-details { font-size: 11px; color: var(--accent-strong); }
+.journal-roster-details summary { min-height: 30px; padding: 7px 4px; border-radius: 5px; cursor: pointer; white-space: nowrap; }
+.journal-roster-details summary:hover { background: rgba(20, 108, 104, 0.08); }
+.journal-roster-details[open] summary { background: rgba(20, 108, 104, 0.08); }
+.journal-roster-options { display: grid; justify-items: center; gap: 5px; padding: 5px 0; }
+.journal-roster-edit:focus-visible, .journal-roster-details summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .journal-group-row { background: #f1f6f6; }
 .journal-pupil-row .student-cell { padding-left: 24px; font-weight: 400; }
 .legacy-group-grade, .journal-correction-note { max-width: 140px; font-size: 10px; font-weight: 400; color: var(--muted); }
@@ -1728,7 +1737,7 @@ th {
 }
 
 @media print {
-  .journal-roster-edit, .journal-roster-label { display: none; }
+  .journal-roster-details, .journal-roster-edit, .journal-roster-label { display: none; }
   .print-roster-report { display: block; break-before: page; font-size: 10px; }
   .print-roster-report table { width: 100%; border-collapse: collapse; }
   .print-roster-report th:nth-child(1) { width: 12%; }

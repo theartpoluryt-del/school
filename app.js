@@ -2287,7 +2287,7 @@ function renderJournal() {
       ${renderJournalTotal("ДОП", totals.dop)}
       ${renderJournalTotal("Итого", totals.total)}
     </div>
-    <p class="muted-note person-hours-note">Человеко-часы = длительность занятия в учебных часах (40 минут) × число учеников, независимо от явки. «Исправить состав» меняет только выбранную дату, включая прошлые занятия. Оценки ставятся отдельно в строках учеников. Пед. и КЦ считаются один раз за групповое занятие. Будущие занятия («План») в человеко-часы не входят.</p>
+    <p class="muted-note person-hours-note">Человеко-часы = длительность занятия в учебных часах (40 минут) × число учеников, независимо от явки. Нажмите на число учеников под датой, чтобы раскрыть «Исправить состав»: изменение действует только на выбранную дату, включая прошлые занятия. Оценки ставятся отдельно в строках учеников. Пед. и КЦ считаются один раз за групповое занятие. Будущие занятия («План») в человеко-часы не входят.</p>
     ${renderLessonRosterPrintReport(records)}
   `;
 }
@@ -2380,11 +2380,21 @@ function renderJournalCell(entry, date) {
     const roster = journalLessonRoster(record);
     const rosterLabel = journalRosterLabel(roster);
     if (roster.participantKind === 'group' && !entry.memberId) {
-      return `<div class="journal-lesson"><span class="journal-roster-label">${escapeHtml(rosterLabel)}</span>
-        <button type="button" class="journal-roster-edit" data-action="journalRoster:${escapeAttr(record.id)}" aria-label="Исправить состав ${escapeAttr(entry.name)} за ${escapeAttr(date)}">Исправить состав</button>
-        ${record.rosterOverride === true ? '<small class="journal-correction-note">Исправлено на дату</small>' : ''}
-        ${record.grade ? `<small class="legacy-group-grade">Старая общая оценка: ${escapeHtml(record.grade)}</small>` : ''}
-        <small class="print-lesson-details">${escapeHtml(details)}<br>${escapeHtml(rosterLabel)}</small></div>`;
+      const compactLabel = roster.planned || !roster.participantIds.length ? rosterLabel : `${roster.participantIds.length} уч.`;
+      const correctionNote = record.rosterOverride === true ? 'Исправлено на дату' : '';
+      const legacyGrade = record.grade ? `Старая общая оценка: ${record.grade}` : '';
+      const printDetails = [details, rosterLabel, correctionNote, legacyGrade].filter(Boolean).map(escapeHtml).join('<br>');
+      return `<div class="journal-lesson">
+        <details class="journal-roster-details">
+          <summary aria-label="Состав ${escapeAttr(entry.name)} за ${escapeAttr(date)}: ${escapeAttr(rosterLabel)}" title="${escapeAttr([details, rosterLabel, correctionNote, 'Нажмите, чтобы исправить состав'].filter(Boolean).join(' · '))}">${escapeHtml(compactLabel)}</summary>
+          <div class="journal-roster-options">
+            <span class="journal-roster-label">${escapeHtml(rosterLabel)}</span>
+            <button type="button" class="journal-roster-edit" data-action="journalRoster:${escapeAttr(record.id)}" aria-label="Исправить состав ${escapeAttr(entry.name)} за ${escapeAttr(date)}">Исправить состав</button>
+            ${correctionNote ? `<small class="journal-correction-note">${escapeHtml(correctionNote)}</small>` : ''}
+            ${legacyGrade ? `<small class="legacy-group-grade">${escapeHtml(legacyGrade)}</small>` : ''}
+          </div>
+        </details>
+        <small class="print-lesson-details">${printDetails}</small></div>`;
     }
     const grade = String(entry.memberId ? record.studentGrades?.[entry.memberId] ?? '' : record.grade ?? '');
     const rosterInfo = entry.memberId ? '' : `<span class="journal-roster-label">${escapeHtml(rosterLabel)}</span>`;

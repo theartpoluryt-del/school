@@ -302,6 +302,26 @@ test('removing and restoring a graded pupil preserves their grade without transf
   assert.equal(first.studentGrades.p2,'4');
 });
 
+test('compact group cells keep correction controls collapsed and all metadata available in print',()=>{
+  const c=subgroupFixture();
+  const first=c.state.records[0];
+  c.saveJournalRoster({dataset:{recordId:first.id},memberIds:['p1','p2']});
+  c.setGrade(first.id,'5','p1');
+  c.setGrade(first.id,'4','p2');
+  const before=JSON.stringify(c.state);
+  const html=c.renderJournalEntry({name:'Group',className:'1 класс',records:[first]},[first.date]);
+  assert(html.includes('<details class="journal-roster-details">'));
+  assert(!/<details[^>]*\bopen\b/.test(html));
+  assert(/<summary[^>]*>2 уч\.<\/summary>/.test(html));
+  assert(html.includes('aria-label="Состав Group за 2026-09-02: 2 уч. · 2 чел.-ч."'));
+  assert(/<div class="journal-roster-options">[\s\S]*data-action="journalRoster:record-wed"[\s\S]*Старая общая оценка: 5[\s\S]*<\/details>/.test(html));
+  assert(/<\/details>\s*<small class="print-lesson-details">[^<]*<br>2 уч\. · 2 чел\.-ч\.<br>Исправлено на дату<br>Старая общая оценка: 5<\/small>/.test(html));
+  assert.equal((html.match(/data-grade-student=/g)||[]).length,2);
+  assert(html.includes('value="5" selected'));
+  assert(html.includes('value="4" selected'));
+  assert.equal(JSON.stringify(c.state),before);
+});
+
 test('correction and pupil grading guards reject outsiders, invalid grades and another employee',()=>{
   const c=subgroupFixture();
   const first=c.state.records[0];
