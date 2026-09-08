@@ -1,24 +1,5 @@
--- Apply after schema.sql. Does not rewrite school data.
--- Expand only the roster of a teacher's own groups; validate new lesson fields.
+-- Existing deployments: apply after lesson_members.sql. Updates validation only; no pupil data is rewritten.
 begin;
-
-create or replace function public.school_teacher_students(source jsonb, teacher_id text)
-returns jsonb language sql immutable set search_path = public, pg_temp as $$
-  select coalesce(jsonb_agg(case
-    when coalesce(s->'assignedEmployeeIds', '[]'::jsonb) ? teacher_id then s
-    else jsonb_build_object('id', s->'id', 'name', s->'name',
-      'className', s->'className', 'educationForm', s->'educationForm',
-      'isArchived', coalesce(s->'isArchived', 'false'::jsonb),
-      'assignedEmployeeIds', '[]'::jsonb, 'enrollments', '[]'::jsonb)
-    end), '[]'::jsonb)
-  from jsonb_array_elements(coalesce(source->'students', '[]'::jsonb)) s
-  where coalesce(s->'assignedEmployeeIds', '[]'::jsonb) ? teacher_id
-    or exists (
-      select 1 from jsonb_array_elements(coalesce(source->'groups', '[]'::jsonb)) g
-      where coalesce(g->'assignedEmployeeIds', '[]'::jsonb) ? teacher_id
-        and coalesce(g->'studentIds', '[]'::jsonb) ? (s->>'id')
-    );
-$$;
 
 create or replace function public.validate_school_lesson_members(
   source jsonb, incoming jsonb, teacher_id text, admin_access boolean
@@ -133,28 +114,5 @@ begin
 end;
 $$;
 
-revoke all on function public.school_teacher_students(jsonb, text) from public, anon, authenticated;
 revoke all on function public.validate_school_lesson_members(jsonb, jsonb, text, boolean) from public, anon, authenticated;
-
--- Guarded, idempotent changes preserve other deployed authentication logic.
-do $migration$
-declare
-  definition text;
-  old_fragment text := $old$'students', coalesce((select jsonb_agg(item) from jsonb_array_elements(coalesce(clean_payload->'students', '[]'::jsonb)) item where coalesce(item->'assignedEmployeeIds', '[]'::jsonb) ? employee_id), '[]'::jsonb)$old$;
-  new_fragment text := $new$'students', public.school_teacher_students(clean_payload, employee_id)$new$;
-  save_marker text := '  if public.is_school_admin() then';
-begin
-  definition := pg_get_functiondef('public.get_school_context()'::regprocedure);
-  if strpos(definition, new_fragment) = 0 then
-    if strpos(definition, old_fragment) = 0 then raise exception 'Unrecognized get_school_context; inspect before applying'; end if;
-    execute replace(definition, old_fragment, new_fragment);
-  end if;
-  definition := pg_get_functiondef('public.save_school_context(jsonb,timestamptz)'::regprocedure);
-  if strpos(definition, 'perform public.validate_school_lesson_members') = 0 then
-    if strpos(definition, save_marker) = 0 then raise exception 'Unrecognized save_school_context; inspect before applying'; end if;
-    execute replace(definition, save_marker,
-      E'  perform public.validate_school_lesson_members(state_row.payload, clean_payload, employee_id, public.is_school_admin());\n\n' || save_marker);
-  end if;
-end;
-$migration$;
 commit;

@@ -20,12 +20,15 @@ function fixture() {
     SchoolModel:require('../school-model.js'),escapeHtml:String,escapeAttr:String,formatNumber:String,
     formatDate:String,normalizeEducationForm:form=>form || 'ДПП',
     checkedValues:form=>form.memberIds,closeModal(){},persistAndRender:()=>{ctx.saved=true;},
+    openModal:(title,html)=>{ctx.modalHtml=html;},alert:message=>{ctx.alert=message;},
     lessonMemberCandidates:group=>ctx.state.students.filter(s=>group.studentIds.includes(s.id))
   });
   ['refreshJournalMonth','refreshGeneratedJournalForScheduleChange','activeScheduleForEmployeeDate',
     'gradeOptions','renderJournalCell','snapshotLessonMembers','lessonMemberIds','journalLessonRoster',
     'journalRosterLabel','renderPersonHoursTotal','renderLessonRosterPrintReport','journalTotals',
-    'renderJournalTotal','countableRecord','countableStatus','saveLessonMembers'].forEach(n=>load(n,ctx));
+    'renderJournalTotal','countableRecord','countableStatus','saveLessonMembers','gradeValues','clearLegacyAttendance',
+    'journalRosterCandidates','openJournalRoster','saveJournalRoster','resetJournalRoster','setGrade','lessonMemberCheckboxes',
+    'journalPupilEntries','renderJournalEntry','sum'].forEach(n=>load(n,ctx));
   return ctx;
 }
 function subgroupFixture() {
@@ -80,9 +83,10 @@ test('two out of thirteen on the 2nd and three on the 3rd appear immediately wit
   assert.equal(JSON.stringify(c.journalLessonRoster(thu).participantIds),'["p3","p4","p5"]');
   assert.equal(c.journalLessonRoster(wed).personHours,2);
   assert.equal(c.journalLessonRoster(thu).personHours,3);
-  const html=c.renderJournalCell({name:'Group',records:c.state.records},wed.date);
+  const html=c.renderJournalEntry({name:'Group',records:[wed]},[wed.date]);
   assert(html.includes('2 уч. · 2 чел.-ч.'));
-  assert(html.includes('Ученик 01<br>Ученик 02'));
+  assert(html.includes('Ученик 01'));
+  assert(html.includes('Ученик 02'));
   assert(!html.includes('Ученик 03'));
   assert(!html.includes('Ученик 13'));
   assert(!html.includes('<input'));
@@ -91,8 +95,8 @@ test('two out of thirteen on the 2nd and three on the 3rd appear immediately wit
   assert.equal(c.renderPersonHoursTotal(c.state.records),'5');
   assert.equal(c.journalTotals(c.state.records).total.person,5);
   const print=c.renderLessonRosterPrintReport(c.state.records);
-  assert(print.includes('Ученик 01; Ученик 02</td><td>2</td>'));
-  assert(print.includes('Ученик 03; Ученик 04; Ученик 05</td><td>3</td>'));
+  assert(print.includes('Ученик 01: —; Ученик 02: —</td><td>2</td>'));
+  assert(print.includes('Ученик 03: —; Ученик 04: —; Ученик 05: —</td><td>3</td>'));
   assert(!print.includes('Ученик 13'));
   assert(!print.includes('посещаемость'));
   assert.equal(JSON.stringify(c.state),before);
@@ -174,10 +178,10 @@ test('future lessons display their subgroup but enter person-hours only on their
     participantIds:['a','b'],participantNames:{a:'A',b:'B'},status:'conducted'};
   const html=c.renderJournalCell({name:'Group',records:[r]},r.date);
   assert(html.includes('План · 2 уч.'));
-  assert(html.includes('A<br>B'));
+  assert(c.renderJournalEntry({name:'Group',records:[r]},[r.date]).includes('Оценка A'));
   assert.equal(c.renderPersonHoursTotal([r]),'0');
   assert.equal(c.journalTotals([r]).total.person,0);
-  assert(c.renderLessonRosterPrintReport([r]).includes('A; B</td><td>План</td>'));
+  assert(c.renderLessonRosterPrintReport([r]).includes('A: —; B: —</td><td>План</td>'));
   c.todayISO=()=>r.date;
   assert.equal(c.journalLessonRoster(r).personHours,2);
   assert.equal(c.renderPersonHoursTotal([r]),'2');
@@ -227,4 +231,93 @@ test('numeric and string grades still render and no attendance editor or handler
   for(const removed of ['openLessonAttendance','saveLessonAttendance','attendanceAll','attendanceNone','data-modal-form="lessonAttendance"']) {
     assert(!source.includes(removed),removed+' must be removed');
   }
+});
+
+test('past lesson roster can be corrected independently, survives regeneration and can return to its schedule',()=>{
+  const c=subgroupFixture();
+  c.state.schedule[0].participantIds=[...c.state.groups[0].studentIds];
+  c.state.schedule[0].archiveId='old-week';
+  const first=c.state.records[0];
+  assert.equal(c.journalLessonRoster(first).personHours,13);
+  const scheduleBefore=JSON.stringify(c.state.schedule);
+  c.openJournalRoster(first.id);
+  assert(c.modalHtml.includes('Сохранить состав на эту дату'));
+  c.saveJournalRoster({dataset:{recordId:first.id},memberIds:['p1','p2']});
+  assert.equal(first.rosterOverride,true);
+  assert.equal(c.journalLessonRoster(first).personHours,2);
+  assert.equal(c.journalLessonRoster(c.state.records[1]).personHours,3);
+  assert.equal(JSON.stringify(c.state.schedule),scheduleBefore);
+  assert.equal(c.journalTotals(c.state.records).total.person,5);
+  c.refreshJournalMonth('2026-09','2026-09-15','t');
+  const reloaded=fixture();
+  reloaded.state=JSON.parse(JSON.stringify(c.state));
+  const corrected=reloaded.state.records.find(r=>r.id===first.id);
+  assert.equal(corrected.rosterOverride,true);
+  assert.equal(reloaded.journalLessonRoster(corrected).personHours,2);
+  assert.equal(corrected.grade,'5');
+  assert(reloaded.renderLessonRosterPrintReport([corrected]).includes('Состав исправлен'));
+  reloaded.resetJournalRoster(corrected.id);
+  assert.equal(corrected.rosterOverride,undefined);
+  assert.equal(reloaded.journalLessonRoster(corrected).personHours,13);
+});
+
+test('pupils have independent grades and old shared grades are not copied to everyone',()=>{
+  const c=subgroupFixture();
+  const first=c.state.records[0];
+  const entry={name:'Group',className:'1 класс',records:[first]};
+  const before=c.renderJournalEntry(entry,[first.date]);
+  assert.equal((before.match(/aria-hidden="true">•<\/span>/g)||[]).length,2);
+  assert(before.includes('Старая общая оценка: 5'));
+  assert(!before.includes('Оценка Group'));
+  c.setGrade(first.id,'5','p1');
+  c.setGrade(first.id,'4','p2');
+  assert.equal(JSON.stringify(first.studentGrades),'{"p1":"5","p2":"4"}');
+  assert.equal(first.grade,'5');
+  const pupils=c.journalPupilEntries(entry);
+  assert(c.renderJournalCell(pupils.find(p=>p.memberId==='p1'),first.date).includes('value="5" selected'));
+  assert(c.renderJournalCell(pupils.find(p=>p.memberId==='p2'),first.date).includes('value="4" selected'));
+  assert.equal(c.renderPersonHoursTotal([first],'p1'),'1');
+  assert.equal(c.journalTotals([first]).total.ped,1);
+  assert.equal(c.journalTotals([first]).total.person,2);
+  assert(c.renderLessonRosterPrintReport([first]).includes('Ученик 01: 5; Ученик 02: 4'));
+  c.refreshJournalMonth('2026-09','2026-09-15','t');
+  assert.equal(JSON.stringify(c.state.records.find(r=>r.id===first.id).studentGrades),'{"p1":"5","p2":"4"}');
+});
+
+test('removing and restoring a graded pupil preserves their grade without transferring it',()=>{
+  const c=subgroupFixture();
+  const first=c.state.records[0];
+  c.setGrade(first.id,'5','p1');
+  c.setGrade(first.id,'4','p2');
+  c.saveJournalRoster({dataset:{recordId:first.id},memberIds:['p1','p6']});
+  assert.equal(first.studentGrades.p2,'4');
+  assert.equal(first.studentGrades.p6,undefined);
+  const pupils=c.journalPupilEntries({records:[first]});
+  assert(!pupils.some(p=>p.memberId==='p2'));
+  assert(c.renderJournalCell(pupils.find(p=>p.memberId==='p6'),first.date).includes('aria-hidden="true">•</span>'));
+  c.saveJournalRoster({dataset:{recordId:first.id},memberIds:['p1','p2']});
+  assert.equal(first.studentGrades.p2,'4');
+  c.setGrade(first.id,'','p1');
+  assert.equal(first.studentGrades.p1,undefined);
+  assert.equal(first.studentGrades.p2,'4');
+});
+
+test('correction and pupil grading guards reject outsiders, invalid grades and another employee',()=>{
+  const c=subgroupFixture();
+  const first=c.state.records[0];
+  const before=JSON.stringify(c.state);
+  c.setGrade(first.id,'5','outsider');
+  c.setGrade(first.id,'6','p1');
+  c.setGrade(first.id,'5');
+  assert.equal(JSON.stringify(c.state),before);
+  c.saveJournalRoster({dataset:{recordId:first.id},memberIds:[]});
+  assert(c.alert);
+  assert.equal(JSON.stringify(c.state),before);
+  c.state.activeEmployeeId='other';
+  c.openJournalRoster(first.id);
+  c.saveJournalRoster({dataset:{recordId:first.id},memberIds:['p1']});
+  c.setGrade(first.id,'5','p1');
+  c.resetJournalRoster(first.id);
+  c.state.activeEmployeeId='t';
+  assert.equal(JSON.stringify(c.state),before);
 });

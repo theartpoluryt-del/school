@@ -156,6 +156,8 @@ document.addEventListener("click", (event) => {
   if (name === "deleteScheduleArchive") deleteScheduleArchive(id);
   if (name === "printSchedule") printSchedule();
   if (name === "lessonMembers") openLessonMembers(id);
+  if (name === "journalRoster") openJournalRoster(id);
+  if (name === "resetJournalRoster") resetJournalRoster(id);
   if (name === "lessonMembersClear") document.querySelectorAll('#modalContent input[name="lessonMemberIds"]').forEach(input => { input.checked = false; });
   if (name === "deleteStudent") deleteStudent(id);
   if (name === "deleteEmployee") deleteEmployee(id);
@@ -191,6 +193,7 @@ document.addEventListener("submit", async (event) => {
   if (type === "schedule") addScheduleFromModal(form);
   if (type === "archiveSchedule") archiveCurrentSchedule(form);
   if (type === "lessonMembers") saveLessonMembers(form);
+  if (type === "journalRoster") saveJournalRoster(form);
 });
 
 document.addEventListener("dragstart", (event) => {
@@ -230,7 +233,7 @@ document.addEventListener("change", (event) => {
 
   const select = event.target.closest("[data-grade-record]");
   if (select) {
-    setGrade(select.dataset.gradeRecord, select.value);
+    setGrade(select.dataset.gradeRecord, select.value, select.dataset.gradeStudent);
     return;
   }
 
@@ -1126,8 +1129,7 @@ function lessonMemberCandidates(group) {
   return state.students.filter(s => ids.has(s.id) && !s.isArchived).sort((a,b) => a.name.localeCompare(b.name,'ru'));
 }
 
-function lessonMemberCheckboxes(group, selected) {
-  const candidates = lessonMemberCandidates(group);
+function lessonMemberCheckboxes(group, selected, candidates = lessonMemberCandidates(group)) {
   return `<div data-member-picker><label>Поиск по фамилии<input type="search" data-member-search placeholder="Фамилия или имя" /></label><button type="button" class="ghost-button" data-action="lessonMembersClear">Снять все отметки</button><div class="lesson-member-list">${candidates.map(s => `<label class="checkbox-label"><input type="checkbox" name="lessonMemberIds" value="${escapeAttr(s.id)}" ${selected.includes(s.id) ? 'checked' : ''} />${escapeHtml(s.name)}</label>`).join('') || '<p>Нет доступных учеников. Администратор может добавить их в «Списки → Группы → Настроить».</p>'}</div></div>`;
 }
 
@@ -1138,14 +1140,15 @@ function lessonMemberIds(row) {
 function snapshotLessonMembers(row) {
   const participantIds = lessonMemberIds(row);
   return {participantKind: row.participantKind === 'group' || state.groups.some(g => g.id === row.studentId) ? 'group' : 'student', participantIds,
-    participantNames: Object.fromEntries(participantIds.map(id => [id, state.students.find(s => s.id === id)?.name || '']))};
+    participantNames: Object.fromEntries(participantIds.map(id => [id, state.students.find(s => s.id === id)?.name || row.participantNames?.[id] || '']))};
 }
 
 function journalLessonRoster(record) {
   const row = state.schedule.find(r => r.id === record.scheduleId && r.employeeId === record.employeeId && r.studentId === record.studentId);
   // An explicit subgroup on this exact schedule row overrides stale journal snapshots.
   // Never look up a different row merely because it belongs to the same group.
-  const source = row && Array.isArray(row.participantIds) ? row : Array.isArray(record.participantIds) ? record : row || record;
+  const source = record.rosterOverride === true && Array.isArray(record.participantIds) ? record
+    : row && Array.isArray(row.participantIds) ? row : Array.isArray(record.participantIds) ? record : row || record;
   const snapshot = snapshotLessonMembers(source);
   const participantIds = SchoolModel.memberIds(snapshot);
   const planned = !record.date || record.date > todayISO();
@@ -1182,6 +1185,63 @@ function saveLessonMembers(form) {
   refreshGeneratedJournalForScheduleChange(row);
   closeModal();
   persistAndRender();
+}
+
+function journalRosterCandidates(record) {
+  const group = state.groups.find(g => g.id === record.studentId) || {studentIds: []};
+  const candidates = new Map(lessonMemberCandidates(group).map(s => [s.id, s]));
+  const roster = journalLessonRoster(record);
+  const historicalIds = Array.isArray(record.participantIds) ? record.participantIds : [];
+  [...historicalIds, ...roster.participantIds].forEach(id => {
+    if (!candidates.has(id)) candidates.set(id, {id, name: roster.participantNames[id] || record.participantNames?.[id] || 'Ученик не загружен'});
+  });
+  return [...candidates.values()].sort((a,b) => a.name.localeCompare(b.name, 'ru'));
+}
+
+function openJournalRoster(id) {
+  const record = state.records.find(r => r.id === id && r.employeeId === state.activeEmployeeId);
+  if (!record || journalLessonRoster(record).participantKind !== 'group') return;
+  const roster = journalLessonRoster(record);
+  openModal(`Исправить состав на ${formatDate(record.date)} · ${escapeHtml(record.time)}`, `<form class="modal-form" data-modal-form="journalRoster" data-record-id="${escapeAttr(id)}">
+    <p>${escapeHtml(record.studentName || studentName(record.studentId))} · ${escapeHtml(SchoolModel.subjectLabel(record))}</p>
+    <p class="muted-note">Это состав занятия, не отметки явки. Исправление изменит только эту дату и пересчитает человеко-часы. Расписание и другие даты останутся прежними. При обновлении журнала исправленный состав сохранится.</p>
+    ${lessonMemberCheckboxes(null, roster.participantIds, journalRosterCandidates(record))}
+    <p class="muted-note">Оценки исключённых учеников сохранятся и снова появятся, если вернуть их в состав.</p>
+    <button class="primary-button" type="submit">Сохранить состав на эту дату</button>
+    ${record.rosterOverride === true ? `<button class="ghost-button" type="button" data-action="resetJournalRoster:${escapeAttr(id)}">Вернуть состав из расписания</button>` : ''}
+  </form>`);
+}
+
+function saveJournalRoster(form) {
+  const record = state.records.find(r => r.id === form.dataset.recordId && r.employeeId === state.activeEmployeeId);
+  if (!record || journalLessonRoster(record).participantKind !== 'group') return;
+  const candidates = journalRosterCandidates(record);
+  const allowed = new Set(candidates.map(s => s.id));
+  const ids = [...new Set(checkedValues(form, 'lessonMemberIds'))].filter(id => allowed.has(id));
+  if (!ids.length) { alert('Выберите хотя бы одного ученика в состав занятия.'); return; }
+  Object.assign(record, {participantIds: ids, participantKind: 'group', rosterOverride: true,
+    rosterCorrectedAt: new Date().toISOString(), participantNames: Object.fromEntries(ids.map(id => [id, candidates.find(s => s.id === id).name]))});
+  clearLegacyAttendance(record);
+  closeModal();
+  persistAndRender();
+}
+
+function resetJournalRoster(id) {
+  const record = state.records.find(r => r.id === id && r.employeeId === state.activeEmployeeId);
+  const row = record && state.schedule.find(r => r.id === record.scheduleId && r.employeeId === record.employeeId && r.studentId === record.studentId);
+  if (!row || journalLessonRoster(record).participantKind !== 'group') return;
+  delete record.rosterOverride;
+  delete record.rosterCorrectedAt;
+  Object.assign(record, snapshotLessonMembers(row));
+  clearLegacyAttendance(record);
+  closeModal();
+  persistAndRender();
+}
+
+function clearLegacyAttendance(record) {
+  delete record.presentStudentIds;
+  delete record.attendanceRecordedAt;
+  delete record.attendanceLessonHours;
 }
 
 function applyModalCourse(form) {
@@ -1747,19 +1807,23 @@ function deleteEmployee(id) {
   persistAndRender();
 }
 
-function setGrade(id, value) {
-  const record = state.records.find((item) => item.id === id);
-  if (!record) return;
-
-  if (value === "") {
-    record.grade = "";
-    record.status = record.status === "planned" ? "planned" : "conducted";
-    persistAndRender();
-    return;
+function setGrade(id, value, memberId) {
+  const record = state.records.find(item => item.id === id && item.employeeId === state.activeEmployeeId);
+  if (!record || !gradeValues().includes(value)) return;
+  const roster = journalLessonRoster(record);
+  if (roster.participantKind === 'group') {
+    if (!memberId || !roster.participantIds.includes(memberId)) return;
+    record.participantIds = roster.participantIds;
+    record.participantNames = roster.participantNames;
+    record.participantKind = 'group';
+    record.studentGrades = {...record.studentGrades, [memberId]: value};
+    if (!value) delete record.studentGrades[memberId];
+    clearLegacyAttendance(record);
+  } else {
+    if (memberId && memberId !== record.studentId) return;
+    record.grade = value;
   }
-
-  record.grade = value;
-  record.status = "conducted";
+  record.status = value || record.status !== 'planned' ? 'conducted' : 'planned';
   persistAndRender();
 }
 
@@ -1807,12 +1871,10 @@ function refreshJournalMonth(month, asOf, employeeId) {
       if (previous) reusedRecordIds.add(previous.id);
       const previousLesson = {...previous};
       // Obsolete attendance fields must not freeze the roster or violate its server subset check.
-      delete previousLesson.presentStudentIds;
-      delete previousLesson.attendanceRecordedAt;
-      delete previousLesson.attendanceLessonHours;
+      clearLegacyAttendance(previousLesson);
       state.records.push({
         ...previousLesson,
-        ...snapshotLessonMembers(row),
+        ...snapshotLessonMembers(previous?.rosterOverride === true && Array.isArray(previous.participantIds) ? previous : row),
         id: previous?.id || createId(),
         employeeId: row.employeeId,
         scheduleId: row.id,
@@ -2200,20 +2262,7 @@ function renderJournal() {
     <tr class="journal-program-row"><td colspan="${columnCount}">${escapeHtml(section.educationForm)}</td></tr>
     ${section.subjects.map((subject) => `
       <tr class="journal-subject-row"><td colspan="${columnCount}">${escapeHtml(subject.name)}</td></tr>
-      ${subject.entries.map((entry) => {
-        const cells = dates.map((date) => renderJournalCell(entry, date)).join("");
-        const countable = entry.records.filter(countableRecord);
-        return `
-          <tr>
-            <td class="student-cell">${escapeHtml(entry.name)}</td>
-            <td class="class-cell">${escapeHtml(entry.className || "")}</td>
-            ${cells}
-            <td class="summary-cell">${formatNumber(sum(countable, "pedHours"))}</td>
-            <td class="summary-cell">${formatNumber(sum(countable, "kcHours"))}</td>
-            <td class="summary-cell">${renderPersonHoursTotal(countable)}</td>
-          </tr>
-        `;
-      }).join("")}
+      ${subject.entries.map(entry => renderJournalEntry(entry, dates)).join('')}
     `).join("")}
   `).join("");
 
@@ -2238,14 +2287,41 @@ function renderJournal() {
       ${renderJournalTotal("ДОП", totals.dop)}
       ${renderJournalTotal("Итого", totals.total)}
     </div>
-    <p class="muted-note person-hours-note">Человеко-часы = длительность занятия в учебных часах (40 минут) × число учеников в составе занятия из расписания, независимо от явки. Состав меняется только в расписании. Будущие занятия («План») в человеко-часы не входят.</p>
+    <p class="muted-note person-hours-note">Человеко-часы = длительность занятия в учебных часах (40 минут) × число учеников, независимо от явки. «Исправить состав» меняет только выбранную дату, включая прошлые занятия. Оценки ставятся отдельно в строках учеников. Пед. и КЦ считаются один раз за групповое занятие. Будущие занятия («План») в человеко-часы не входят.</p>
     ${renderLessonRosterPrintReport(records)}
   `;
 }
 
-function renderPersonHoursTotal(records) {
+function journalPupilEntries(entry) {
+  const pupils = new Map();
+  entry.records.forEach(record => {
+    const roster = journalLessonRoster(record);
+    roster.participantIds.forEach(id => {
+      if (!pupils.has(id)) pupils.set(id, {memberId: id, name: roster.participantNames[id], className: entry.className, records: []});
+      pupils.get(id).records.push(record);
+    });
+  });
+  return [...pupils.values()].sort((a,b) => a.name.localeCompare(b.name, 'ru'));
+}
+
+function renderJournalEntry(entry, dates) {
+  const group = !entry.memberId && entry.records.some(record => journalLessonRoster(record).participantKind === 'group');
+  const countable = entry.records.filter(countableRecord);
+  return `<tr class="${group ? 'journal-group-row' : entry.memberId ? 'journal-pupil-row' : ''}">
+    <td class="student-cell">${escapeHtml(entry.name)}</td><td class="class-cell">${escapeHtml(entry.className || '')}</td>
+    ${dates.map(date => renderJournalCell(entry, date)).join('')}
+    <td class="summary-cell">${entry.memberId ? '—' : formatNumber(sum(countable, 'pedHours'))}</td>
+    <td class="summary-cell">${entry.memberId ? '—' : formatNumber(sum(countable, 'kcHours'))}</td>
+    <td class="summary-cell">${renderPersonHoursTotal(countable, entry.memberId)}</td>
+  </tr>${group ? journalPupilEntries(entry).map(pupil => renderJournalEntry(pupil, dates)).join('') : ''}`;
+}
+
+function renderPersonHoursTotal(records, memberId) {
   const eligible = records.filter(r => r.date <= todayISO());
-  const known = eligible.map(r => journalLessonRoster(r).personHours).filter(value => value !== null);
+  const known = eligible.map(r => {
+    const roster = journalLessonRoster(r);
+    return memberId ? roster.participantIds.includes(memberId) ? SchoolModel.lessonHours(r) : 0 : roster.personHours;
+  }).filter(value => value !== null);
   const pending = eligible.length - known.length;
   return `${!known.length && pending ? '—' : formatNumber(known.reduce((a,b) => a+b,0))}${pending ? ` <small>(нет состава: ${pending})</small>` : ''}`;
 }
@@ -2255,7 +2331,7 @@ function renderLessonRosterPrintReport(records) {
     .filter(({roster}) => roster.participantKind === 'group')
     .sort((a,b) => a.record.date.localeCompare(b.record.date) || a.record.time.localeCompare(b.record.time));
   if (!groups.length) return '';
-  return `<section class="print-roster-report"><h3>Состав групповых занятий по расписанию</h3><p>Человеко-часы рассчитаны по числу учеников в составе каждого занятия, независимо от явки.</p><table><thead><tr><th>Дата · время</th><th>Группа · предмет · класс</th><th>Ученики</th><th>Чел.-ч.</th></tr></thead><tbody>${groups.map(({record: r, roster}) => `<tr><td>${formatDate(r.date)}<br>${escapeHtml(r.time)}</td><td>${escapeHtml(r.studentName || studentName(r.studentId))}<br>${escapeHtml(SchoolModel.subjectLabel(r))} · ${escapeHtml(r.className || '')}</td><td>${roster.participantIds.map(id => escapeHtml(roster.participantNames[id])).join('; ') || 'Нет состава'}</td><td>${roster.planned ? 'План' : roster.personHours === null ? 'Нет состава' : formatNumber(roster.personHours)}</td></tr>`).join('')}</tbody></table></section>`;
+  return `<section class="print-roster-report"><h3>Состав групповых занятий и оценки учеников</h3><p>Человеко-часы рассчитаны по составу каждого занятия, с учётом исправлений на дату, независимо от явки. После фамилии указана индивидуальная оценка; «—» — оценки нет.</p><table><thead><tr><th>Дата · время</th><th>Группа · предмет · класс</th><th>Ученики · оценки</th><th>Чел.-ч.</th></tr></thead><tbody>${groups.map(({record: r, roster}) => `<tr><td>${formatDate(r.date)}<br>${escapeHtml(r.time)}${r.rosterOverride === true ? '<br>Состав исправлен' : ''}</td><td>${escapeHtml(r.studentName || studentName(r.studentId))}<br>${escapeHtml(SchoolModel.subjectLabel(r))} · ${escapeHtml(r.className || '')}${r.grade ? `<br>Старая общая оценка: ${escapeHtml(r.grade)}` : ''}</td><td>${roster.participantIds.map(id => `${escapeHtml(roster.participantNames[id])}: ${escapeHtml(r.studentGrades?.[id] || '—')}`).join('; ') || 'Нет состава'}</td><td>${roster.planned ? 'План' : roster.personHours === null ? 'Нет состава' : formatNumber(roster.personHours)}</td></tr>`).join('')}</tbody></table></section>`;
 }
 
 function journalTotals(records) {
@@ -2293,25 +2369,29 @@ function renderJournalTotal(label, hours) {
 }
 
 function renderJournalCell(entry, date) {
-  const dayRecords = entry.records.filter((item) => item.date === date);
+  const dayRecords = entry.records.filter(item => item.date === date && (!entry.memberId || journalLessonRoster(item).participantIds.includes(entry.memberId)));
   if (!dayRecords.length) return "<td></td>";
 
   const buttons = dayRecords.map((record) => {
-    const grade = String(record.grade ?? "");
     const schedule = state.schedule.find((row) => row.id === record.scheduleId);
     const room = record.room || schedule?.room || '';
     const details = [record.time, room ? `каб. ${room}` : '', `Пед. ${formatNumber(record.pedHours)}`, `Кц ${formatNumber(record.kcHours)}`]
       .filter(Boolean).join(' · ');
     const roster = journalLessonRoster(record);
     const rosterLabel = journalRosterLabel(roster);
-    const rosterNames = roster.participantIds.map(id => escapeHtml(roster.participantNames[id])).join('<br>');
-    const rosterInfo = roster.participantKind === 'group' && roster.participantIds.length
-      ? `<details class="journal-roster"><summary aria-label="Состав занятия ${escapeAttr(entry.name)} за ${escapeAttr(date)}">${escapeHtml(rosterLabel)}</summary><div class="journal-roster-names">${rosterNames}</div></details>`
-      : `<span class="journal-roster-label">${escapeHtml(rosterLabel)}</span>`;
+    if (roster.participantKind === 'group' && !entry.memberId) {
+      return `<div class="journal-lesson"><span class="journal-roster-label">${escapeHtml(rosterLabel)}</span>
+        <button type="button" class="journal-roster-edit" data-action="journalRoster:${escapeAttr(record.id)}" aria-label="Исправить состав ${escapeAttr(entry.name)} за ${escapeAttr(date)}">Исправить состав</button>
+        ${record.rosterOverride === true ? '<small class="journal-correction-note">Исправлено на дату</small>' : ''}
+        ${record.grade ? `<small class="legacy-group-grade">Старая общая оценка: ${escapeHtml(record.grade)}</small>` : ''}
+        <small class="print-lesson-details">${escapeHtml(details)}<br>${escapeHtml(rosterLabel)}</small></div>`;
+    }
+    const grade = String(entry.memberId ? record.studentGrades?.[entry.memberId] ?? '' : record.grade ?? '');
+    const rosterInfo = entry.memberId ? '' : `<span class="journal-roster-label">${escapeHtml(rosterLabel)}</span>`;
     return `
-      <div class="journal-lesson"><span class="grade-control"><span class="grade-value" aria-hidden="true">${escapeHtml(grade || '•')}</span><select class="grade-select" aria-label="Оценка ${escapeAttr(entry.name)} за ${escapeAttr(date)}" title="${escapeHtml(record.time)} ${escapeHtml(SchoolModel.subjectLabel(record))} · ${formatNumber(record.pedHours)} пед. / ${formatNumber(record.kcHours)} конц." data-grade-record="${record.id}">
+      <div class="journal-lesson"><span class="grade-control"><span class="grade-value" aria-hidden="true">${escapeHtml(grade || '•')}</span><select class="grade-select" aria-label="Оценка ${escapeAttr(entry.name)} за ${escapeAttr(date)}" title="${escapeHtml(record.time)} ${escapeHtml(SchoolModel.subjectLabel(record))} · ${formatNumber(record.pedHours)} пед. / ${formatNumber(record.kcHours)} конц." data-grade-record="${escapeAttr(record.id)}" ${entry.memberId ? `data-grade-student="${escapeAttr(entry.memberId)}"` : ''}>
         ${gradeOptions(grade)}
-      </select></span>${rosterInfo}<small class="print-lesson-details">${escapeHtml(details)}<br>${escapeHtml(rosterLabel)}</small></div>
+      </select></span>${rosterInfo}<small class="print-lesson-details">${escapeHtml(details)}${entry.memberId ? '' : `<br>${escapeHtml(rosterLabel)}`}</small></div>
     `;
   }).join("");
 
@@ -2904,9 +2984,13 @@ function minutesFromTime(value) {
   return Number(normalized.slice(0, 2)) * 60 + Number(normalized.slice(3, 5));
 }
 
+function gradeValues() {
+  return ["", "2-", "2", "2+", "3-", "3", "3+", "4-", "4", "4+", "5-", "5", "5+"];
+}
+
 function gradeOptions(selectedGrade) {
   selectedGrade = String(selectedGrade ?? '');
-  return ["", "2-", "2", "2+", "3-", "3", "3+", "4-", "4", "4+", "5-", "5", "5+"]
+  return gradeValues()
     .map((grade) => `<option value="${grade}" ${grade === selectedGrade ? "selected" : ""}>${grade || "•"}</option>`)
     .join("");
 }

@@ -8,6 +8,7 @@ The website uses Supabase Auth for password verification and checked PostgreSQL 
 2. Run the complete `supabase/schema.sql` file.
 3. Run `supabase/lesson_members.sql` after the base schema (also after rerunning it). This preserves group pupil visibility and server validation of lesson rosters and attendance.
    For an existing deployment, also run `supabase/conflict_response.sql`: version conflicts must return `PT409`, not `40001`, which older PostgREST versions retry indefinitely.
+   To update an existing lesson-members validator for dated corrections and pupil grades, run `supabase/journal_corrections.sql` (already included in the current `lesson_members.sql`).
 4. Confirm that `get_school_context` and `save_school_context` appear under **Database → Functions**.
 5. Confirm that direct access policies for `school_state` are absent.
 
@@ -20,15 +21,25 @@ Generated journal records snapshot these IDs and their `participantNames`. The j
 attendance editor: person-hours multiply lesson duration in 40-minute academic hours by all
 distinct pupils in that lesson's roster, irrespective of attendance. Legacy `presentStudentIds`,
 `attendanceLessonHours` and `attendanceRecordedAt` no longer affect calculations.
-`journalLessonRoster` uses the explicit subgroup from the exact linked schedule row ahead of
+`journalLessonRoster` first honors a dated correction (`rosterOverride: true` with `participantIds`).
+Otherwise it uses the explicit subgroup from the exact linked schedule row ahead of
 stale journal snapshots, for cells, totals and the printed roster. It never substitutes a different
 lesson of the same group. Without an explicit schedule subgroup it falls back to the journal
 snapshot, then the individual pupil/group membership. A missing/empty roster is reported, never
 counted as a pupil. Future lessons show their planned roster but do not contribute person-hours yet.
-Regenerating a journal always copies the applicable schedule version's roster and removes obsolete
-attendance fields from those regenerated records, preserving grades and record IDs. This also avoids
+Regenerating a journal preserves dated corrections; other records copy the applicable schedule
+version's roster. It removes obsolete attendance fields while preserving grades and record IDs. This avoids
 the server's legacy attendance-subset check rejecting a smaller subgroup. Archived schedule rows
 retain their own subgroups and effective dates. Rendering itself never writes records to the server.
+
+Group lessons store independent `studentGrades` keyed by pupil ID. The group header counts staff
+hours once; pupil rows show their own grades and person-hours only. Legacy shared `grade` values
+are retained as a separate note, never copied to every pupil. Removing someone from a dated roster
+hides but retains their grade, so restoring the pupil restores it. The validator checks grade values,
+teacher-scoped pupil access and override types. Grades may be retained for the prior roster or pupils
+available for this group, including when grading and correction are saved together; unrelated pupil
+grades are rejected. `tests/journal-corrections.sql` verifies these
+rules and an actual teacher RPC save/reload in a transaction ending with `ROLLBACK`.
 
 Teachers receive minimal identity data for pupils in their assigned groups, not those pupils' other
 enrollments. The save RPC rejects unrelated participant IDs, duplicates and attendance outside the roster.
