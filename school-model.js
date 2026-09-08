@@ -35,7 +35,28 @@
     const type = record.type || 'Без предмета';
     return record.instrument && (type === 'Специальность' || type === 'Музыкальный инструмент') ? `${type}: ${record.instrument}` : type;
   }
-  const api = { courses, courseLabel, courseChoices, applyCourse, endTime, subjectLabel };
+  function memberIds(lesson, group) {
+    const ids = Array.isArray(lesson.participantIds) ? lesson.participantIds : group ? group.studentIds : lesson.participantKind === 'group' ? [] : [lesson.studentId];
+    return [...new Set((ids || []).filter(id => typeof id === 'string' && id))];
+  }
+  function lessonHours(lesson) {
+    const match = String(lesson.time || '').match(/^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/);
+    if (match) {
+      const [,h,m,eh,em] = match.map(Number);
+      const minutes = (eh-h)*60+em-m;
+      if (h < 24 && eh < 24 && m < 60 && em < 60 && minutes > 0) return minutes / 40;
+    }
+    const hours = Number(lesson.pedHours || 0) + Number(lesson.kcHours || 0);
+    return Number.isFinite(hours) ? Math.max(0, hours) : 0;
+  }
+  function personHours(lesson) {
+    if (!Array.isArray(lesson.participantIds) || !Array.isArray(lesson.presentStudentIds)) return null;
+    const members = new Set(memberIds(lesson));
+    const present = new Set(lesson.presentStudentIds.filter(id => members.has(id)));
+    const hours = Number.isFinite(lesson.attendanceLessonHours) ? Math.max(0, lesson.attendanceLessonHours) : lessonHours(lesson);
+    return Math.round(hours * present.size * 100) / 100;
+  }
+  const api = { courses, courseLabel, courseChoices, applyCourse, endTime, subjectLabel, memberIds, lessonHours, personHours };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SchoolModel = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

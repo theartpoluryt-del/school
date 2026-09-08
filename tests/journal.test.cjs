@@ -11,13 +11,14 @@ function load(name, context) {
 function fixture() {
   let seq=0;
   const ctx=vm.createContext({
-    state:{schedule:[],records:[]},
+    state:{schedule:[],records:[],students:[],groups:[]},
+    todayISO:()=> '2026-09-15',
     monthDates:()=>['2026-09-14','2026-09-21'],
     parseISO:d=>new Date(d+'T12:00:00'),isHoliday:()=>false,createId:()=>`id-${++seq}`,
     studentName:()=> 'Test pupil',educationFormForParticipant:()=> 'ДПП',
     SchoolModel:require('../school-model.js'),escapeHtml:s=>String(s),escapeAttr:s=>String(s),formatNumber:String
   });
-  ['refreshJournalMonth','activeScheduleForEmployeeDate','gradeOptions','renderJournalCell'].forEach(n=>load(n,ctx));
+  ['refreshJournalMonth','activeScheduleForEmployeeDate','gradeOptions','renderJournalCell','snapshotLessonMembers','lessonMemberIds'].forEach(n=>load(n,ctx));
   return ctx;
 }
 test('old and new schedule retain their effective periods and grade IDs',()=>{
@@ -33,6 +34,37 @@ test('old and new schedule retain their effective periods and grade IDs',()=>{
   const ids=c.state.records.map(r=>r.id).join();
   c.refreshJournalMonth('2026-09','2026-09-04','t');
   assert.equal(c.state.records.map(r=>r.id).join(),ids);
+});
+
+test('group subgroup changes affect future lessons, not attendance snapshots',()=>{
+  const c=fixture();
+  c.state.students=[{id:'a',name:'A'},{id:'b',name:'B'}];
+  c.state.groups=[{id:'g',studentIds:['a','b']}];
+  c.state.schedule=[{id:'row',employeeId:'t',studentId:'g',weekday:1,time:'10:00-10:40',pedHours:1,kcHours:0,effectiveFrom:'2026-09-01',participantIds:['a','b']}];
+  c.refreshJournalMonth('2026-09','2026-09-15','t');
+  const past=c.state.records.find(r=>r.date==='2026-09-14');
+  past.presentStudentIds=['a','b'];
+  past.attendanceLessonHours=1;
+  past.grade='5';
+  c.state.schedule[0].participantIds=['b'];
+  c.refreshJournalMonth('2026-09','2026-09-15','t');
+  const updatedPast=c.state.records.find(r=>r.date==='2026-09-14');
+  assert.equal(JSON.stringify(updatedPast.participantIds),'["a","b"]');
+  assert.equal(updatedPast.participantNames.a,'A');
+  assert.equal(updatedPast.grade,'5');
+  assert.equal(c.SchoolModel.personHours(updatedPast),2);
+  assert.equal(JSON.stringify(c.state.records.find(r=>r.date==='2026-09-21').participantIds),'["b"]');
+});
+
+test('legacy past attendance is not fabricated when regenerating a journal',()=>{
+  const c=fixture();
+  c.state.groups=[{id:'g',studentIds:['a','b']}];
+  c.state.schedule=[{id:'row',employeeId:'t',studentId:'g',weekday:1,time:'10:00-10:40',effectiveFrom:'2026-09-01'}];
+  c.state.records=[{id:'old',scheduleId:'row',employeeId:'t',studentId:'g',date:'2026-09-14',status:'conducted'}];
+  c.refreshJournalMonth('2026-09','2026-09-15','t');
+  const old=c.state.records.find(r=>r.id==='old');
+  assert.equal(old.participantIds,undefined);
+  assert.equal(c.SchoolModel.personHours(old),null);
 });
 test('numeric and string grades render a visible value and selected option',()=>{
   const c=fixture();

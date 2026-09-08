@@ -6,10 +6,26 @@ The website uses Supabase Auth for password verification and checked PostgreSQL 
 
 1. Open **Supabase Dashboard → SQL Editor**.
 2. Run the complete `supabase/schema.sql` file.
-3. Confirm that `get_school_context` and `save_school_context` appear under **Database → Functions**.
-4. Confirm that direct access policies for `school_state` are absent.
+3. Run `supabase/lesson_members.sql` after the base schema (also after rerunning it). This preserves group pupil visibility and server validation of lesson rosters and attendance.
+4. Confirm that `get_school_context` and `save_school_context` appear under **Database → Functions**.
+5. Confirm that direct access policies for `school_state` are absent.
 
 The migration is rerunnable. It also removes legacy `password` fields from every employee in the stored JSON.
+
+## Group lesson rosters and person-hours
+
+Each schedule row can store `participantIds` for a subgroup without changing the master group.
+Generated journal records snapshot these IDs and their `participantNames`. Saving attendance sets
+`presentStudentIds` (an empty array explicitly means nobody attended), `attendanceLessonHours`,
+and `attendanceRecordedAt`. An absent attendance array means unknown, not zero.
+One academic hour is 40 minutes; person-hours multiply actual lesson duration by distinct present pupils,
+not the sum of two staff members' work. Unmarked rosters follow schedule edits; confirmed attendance
+keeps its roster and duration. Legacy records are not assigned presumed attendance.
+
+Teachers receive minimal identity data for pupils in their assigned groups, not those pupils' other
+enrollments. The save RPC rejects unrelated participant IDs, duplicates and attendance outside the roster.
+`tests/lesson-members.sql` includes synthetic access tests and a real teacher RPC roundtrip. Run the
+whole file: its `BEGIN` / `ROLLBACK` removes the temporary test schedule row. Never replace the rollback with a commit.
 
 ## Create an employee account
 

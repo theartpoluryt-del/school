@@ -1,6 +1,26 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const model = require('../school-model.js');
+
+test('four 40-minute lessons with 20 children equal 4 lesson hours and 80 person-hours',()=>{
+  const ids=Array.from({length:20},(_,i)=>`p${i}`);
+  const lesson={time:'10:00-10:40',participantIds:ids,presentStudentIds:ids,pedHours:1,kcHours:1};
+  assert.equal(model.lessonHours(lesson)*4,4);
+  assert.equal(model.personHours(lesson)*4,80);
+});
+
+test('attendance is explicit, unique, roster-scoped and supports fractional hours',()=>{
+  const lesson={time:'10:00-11:40',studentId:'group',participantIds:['a','b','c','c']};
+  assert.equal(model.personHours(lesson),null);
+  assert.equal(model.personHours({...lesson,presentStudentIds:[]}),0);
+  assert.equal(model.personHours({...lesson,presentStudentIds:['a','b','a','outsider']}),5);
+  assert.equal(model.personHours({...lesson,presentStudentIds:['a','b','c']}),7.5);
+  assert.equal(model.personHours({...lesson,attendanceLessonHours:1,presentStudentIds:['a','b','c']}),3);
+  assert.deepEqual(model.memberIds({studentId:'a'}),['a']);
+  assert.deepEqual(model.memberIds({studentId:'g'}, {studentIds:['a','a','b']}),['a','b']);
+  assert.deepEqual(model.memberIds({studentId:'g',participantIds:[]},{studentIds:['a']}),[]);
+  assert.equal(model.lessonHours({time:'99:99-99:99',pedHours:'bad'}),0);
+});
 test('40-minute academic hours and decimal comma', () => {
   assert.equal(model.endTime('10:00',1),'10:40');
   assert.equal(model.endTime('10:00',2),'11:20');

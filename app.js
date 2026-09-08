@@ -154,6 +154,10 @@ document.addEventListener("click", (event) => {
   if (name === "toggleScheduleArchive") toggleScheduleArchive();
   if (name === "deleteScheduleArchive") deleteScheduleArchive(id);
   if (name === "printSchedule") printSchedule();
+  if (name === "lessonMembers") openLessonMembers(id);
+  if (name === "lessonAttendance") openLessonAttendance(id);
+  if (name === "lessonMembersClear") document.querySelectorAll('#modalContent input[name="lessonMemberIds"]').forEach(input => { input.checked = false; });
+  if (name === "attendanceAll" || name === "attendanceNone") document.querySelectorAll('[data-modal-form="lessonAttendance"] input[name="presentIds"]').forEach(input => { input.checked = name === "attendanceAll"; });
   if (name === "deleteStudent") deleteStudent(id);
   if (name === "deleteEmployee") deleteEmployee(id);
   if (name === "deleteHoliday") deleteHoliday(id);
@@ -185,6 +189,8 @@ document.addEventListener("submit", async (event) => {
   if (type === "holiday") addHolidayFromModal(form);
   if (type === "schedule") addScheduleFromModal(form);
   if (type === "archiveSchedule") archiveCurrentSchedule(form);
+  if (type === "lessonMembers") saveLessonMembers(form);
+  if (type === "lessonAttendance") saveLessonAttendance(form);
 });
 
 document.addEventListener("dragstart", (event) => {
@@ -248,6 +254,11 @@ document.addEventListener("change", (event) => {
 });
 
 document.addEventListener("input", (event) => {
+  if (event.target.matches('[data-member-search]')) {
+    const query = normalizeText(event.target.value);
+    event.target.closest('[data-member-picker]').querySelectorAll('.checkbox-label').forEach(label => { label.hidden = !normalizeText(label.textContent).includes(query); });
+    return;
+  }
   if (event.target.matches('[data-modal-start], [data-modal-hours]')) {
     const form = event.target.closest('form');
     const hours = Number(form.elements.pedHours.value.replace(',', '.')) + Number(form.elements.kcHours.value.replace(',', '.'));
@@ -1061,7 +1072,84 @@ function refreshModalCourses(form) {
   form.elements.enrollmentId.innerHTML = courseSelectOptions(row);
   form.elements.enrollmentId.value = row.enrollmentId;
   form.elements.enrollmentId.required = courses.length > 0;
+  const participant = participantById(row.studentId);
+  form.elements.enrollmentId.closest('label').classList.toggle('is-hidden', participant?.kind === 'group');
+  const previousMembers = form.querySelector('[data-modal-members]');
+  const selectedMembers = previousMembers?.dataset.groupId === row.studentId ? checkedValues(form, 'lessonMemberIds') : participant?.studentIds || [];
+  previousMembers?.remove();
+  if (participant?.kind === 'group') {
+    form.elements.enrollmentId.closest('label').insertAdjacentHTML('afterend', `<fieldset class="compact-fieldset" data-modal-members data-group-id="${escapeAttr(row.studentId)}"><legend>Состав занятия</legend><p class="muted-note">Выберите учеников, которые занимаются в это время.</p>${lessonMemberCheckboxes(participant, selectedMembers)}</fieldset>`);
+  }
   applyModalCourse(form);
+}
+
+function lessonMemberCandidates(group) {
+  const ids = new Set([...(group.studentIds || []), ...visibleStudents().map(s => s.id)]);
+  return state.students.filter(s => ids.has(s.id) && !s.isArchived).sort((a,b) => a.name.localeCompare(b.name,'ru'));
+}
+
+function lessonMemberCheckboxes(group, selected) {
+  const candidates = lessonMemberCandidates(group);
+  return `<div data-member-picker><label>Поиск по фамилии<input type="search" data-member-search placeholder="Фамилия или имя" /></label><button type="button" class="ghost-button" data-action="lessonMembersClear">Снять все отметки</button><div class="lesson-member-list">${candidates.map(s => `<label class="checkbox-label"><input type="checkbox" name="lessonMemberIds" value="${escapeAttr(s.id)}" ${selected.includes(s.id) ? 'checked' : ''} />${escapeHtml(s.name)}</label>`).join('') || '<p>Нет доступных учеников. Администратор может добавить их в «Списки → Группы → Настроить».</p>'}</div></div>`;
+}
+
+function lessonMemberIds(row) {
+  return SchoolModel.memberIds(row, state.groups.find(g => g.id === row.studentId));
+}
+
+function snapshotLessonMembers(row) {
+  const participantIds = lessonMemberIds(row);
+  return {participantKind: state.groups.some(g => g.id === row.studentId) ? 'group' : 'student', participantIds,
+    participantNames: Object.fromEntries(participantIds.map(id => [id, state.students.find(s => s.id === id)?.name || '']))};
+}
+
+function openLessonMembers(id) {
+  const row = state.schedule.find(r => r.id === id && r.employeeId === state.activeEmployeeId);
+  const group = row && state.groups.find(g => g.id === row.studentId);
+  if (!group) return;
+  openModal(`Состав занятия: ${escapeHtml(group.name)}`, `<form class="modal-form" data-modal-form="lessonMembers" data-row-id="${escapeAttr(id)}">
+    <p class="muted-note">Выберите всех участников или подгруппу на это время. У уже отмеченных занятий состав сохраняется.</p>
+    ${lessonMemberCheckboxes(group, lessonMemberIds(row))}<button class="primary-button" type="submit">Сохранить состав</button></form>`);
+}
+
+function saveLessonMembers(form) {
+  const row = state.schedule.find(r => r.id === form.dataset.rowId && r.employeeId === state.activeEmployeeId);
+  const group = row && state.groups.find(g => g.id === row.studentId);
+  if (!group) return;
+  const allowed = new Set(lessonMemberCandidates(group).map(s => s.id));
+  const ids = checkedValues(form, 'lessonMemberIds').filter(id => allowed.has(id));
+  if (!ids.length) { alert('Выберите хотя бы одного ученика.'); return; }
+  row.participantIds = ids;
+  row.participantKind = 'group';
+  refreshGeneratedJournalForScheduleChange(row);
+  closeModal();
+  persistAndRender();
+}
+
+function openLessonAttendance(id) {
+  const record = state.records.find(r => r.id === id && r.employeeId === state.activeEmployeeId);
+  if (!record || record.date > todayISO()) return;
+  const row = state.schedule.find(r => r.id === record.scheduleId) || record;
+  const snapshot = Array.isArray(record.participantIds) ? record : snapshotLessonMembers(row);
+  const ids = SchoolModel.memberIds(snapshot);
+  openModal(`Посещаемость: ${escapeHtml(studentName(record.studentId))} — ${formatDate(record.date)}`, `<form class="modal-form" data-modal-form="lessonAttendance" data-record-id="${escapeAttr(id)}">
+    <p>${escapeHtml(SchoolModel.subjectLabel(record))} · ${escapeHtml(record.time)} · ${formatNumber(SchoolModel.lessonHours(record))} уч. ч.</p>
+    <p class="muted-note">Отметьте тех, кто пришёл. Если никого не было, оставьте все поля пустыми. Человеко-часы = длительность × число присутствующих.</p>
+    <div class="attendance-actions"><button type="button" class="ghost-button" data-action="attendanceAll">Пришли все</button><button type="button" class="ghost-button" data-action="attendanceNone">Снять все отметки</button></div>
+    <div class="lesson-member-list">${ids.map(memberId => `<label class="checkbox-label"><input type="checkbox" name="presentIds" value="${escapeAttr(memberId)}" ${(record.presentStudentIds || []).includes(memberId) ? 'checked' : ''} />${escapeHtml(snapshot.participantNames?.[memberId] || state.students.find(s => s.id === memberId)?.name || 'Ученик не загружен')}</label>`).join('') || '<p>Состав пока пуст. Выберите учеников в расписании.</p>'}</div>
+    <button class="primary-button" type="submit" ${ids.length ? '' : 'disabled'}>Сохранить посещаемость</button></form>`);
+}
+
+function saveLessonAttendance(form) {
+  const record = state.records.find(r => r.id === form.dataset.recordId && r.employeeId === state.activeEmployeeId);
+  if (!record || record.date > todayISO()) return;
+  if (!Array.isArray(record.participantIds)) Object.assign(record, snapshotLessonMembers(state.schedule.find(r => r.id === record.scheduleId) || record));
+  record.presentStudentIds = [...new Set(checkedValues(form, 'presentIds'))].filter(id => record.participantIds.includes(id));
+  record.attendanceRecordedAt = new Date().toISOString();
+  record.attendanceLessonHours = SchoolModel.lessonHours(record);
+  record.status = 'conducted';
+  closeModal();
+  persistAndRender();
 }
 
 function applyModalCourse(form) {
@@ -1071,6 +1159,8 @@ function applyModalCourse(form) {
 }
 
 function initializeScheduleCourse(row) {
+  const group = state.groups.find(g => g.id === row.studentId);
+  if (group) { row.educationForm = group.educationForm; row.participantKind = 'group'; row.participantIds = [...(group.studentIds || [])]; return row; }
   const courses = courseOptionsFor(row.studentId, row.employeeId);
   if (courses.length === 1) SchoolModel.applyCourse(row, courses[0]);
   else if (courses.length > 1) { row.className = ''; row.needsCourseSelection = true; }
@@ -1476,6 +1566,13 @@ function addScheduleFromModal(form) {
   const course = courseOptionsFor(participant.id).find(e => e.id === form.elements.enrollmentId.value);
   if (courseOptionsFor(participant.id).length && !course) { form.elements.enrollmentId.reportValidity(); return; }
   SchoolModel.applyCourse(row, course);
+  if (participant.kind === 'group') {
+    row.participantKind = 'group';
+    row.educationForm = participant.educationForm;
+    const allowed = new Set(lessonMemberCandidates(participant).map(s => s.id));
+    row.participantIds = checkedValues(form,'lessonMemberIds').filter(id => allowed.has(id));
+    if (!row.participantIds.length) { alert('Выберите хотя бы одного ученика в состав занятия.'); return; }
+  }
   row.durationHours = (minutesFromTime(end) - minutesFromTime(start)) / 40;
   if (!Number.isFinite(row.pedHours) || !Number.isFinite(row.kcHours) || row.pedHours < 0 || row.kcHours < 0 || row.durationHours <= 0) {
     form.elements.pedHours.setCustomValidity("Введите неотрицательные часы; сумма Пед. и Кц должна быть больше нуля");
@@ -1676,6 +1773,9 @@ function refreshJournalMonth(month, asOf, employeeId) {
       ));
       if (previous) reusedRecordIds.add(previous.id);
       state.records.push({
+        ...previous,
+        ...((previous && Array.isArray(previous.presentStudentIds))
+          ? {} : (!previous || Array.isArray(previous.participantIds) || previous.date > todayISO()) ? snapshotLessonMembers(row) : {}),
         id: previous?.id || createId(),
         employeeId: row.employeeId,
         scheduleId: row.id,
@@ -1874,6 +1974,8 @@ function renderScheduleRow(row) {
   const time = scheduleTimeParts(row);
   const simple = SchoolModel.courseChoices(courseOptionsFor(row.studentId, row.employeeId), row.type).simple;
   const courseSelect = `<select class="schedule-course-select" aria-label="${simple ? 'Инструмент' : 'Предмет, инструмент и класс'}" data-schedule-id="${escapeAttr(row.id)}" data-schedule-field="enrollmentId">${courseSelectOptions(row)}</select>`;
+  const groupMembers = participant?.kind === 'group' ? lessonMemberIds(row) : [];
+  const membersControl = participant?.kind === 'group' ? `<button type="button" class="mini-button lesson-members-button" data-action="lessonMembers:${escapeAttr(row.id)}">Состав занятия: ${groupMembers.length} уч.</button><details class="lesson-roster"><summary>Фамилии участников</summary>${groupMembers.map(id => escapeHtml(state.students.find(s => s.id === id)?.name || 'Ученик не загружен')).join('<br>') || 'Состав не выбран'}</details><small>По составу: ${formatNumber(SchoolModel.lessonHours(row) * groupMembers.length)} чел.-ч. за занятие</small>` : '';
   return `
     <tr class="${row.effectiveTo ? "closed" : ""}" data-schedule-row="${row.id}">
       <td class="schedule-time-cell" data-label="Время">
@@ -1883,7 +1985,7 @@ function renderScheduleRow(row) {
           <input class="schedule-time-input" type="time" value="${escapeAttr(time.end)}" step="300" aria-label="Окончание занятия" data-schedule-id="${row.id}" data-schedule-time data-time-bound="end" />
         </span>
       </td>
-      <td class="participant-cell" data-label="Ученик / группа"><strong>${escapeHtml(participant?.name || "Не найдено")}</strong>${simple ? '' : courseSelect}</td>
+      <td class="participant-cell" data-label="Ученик / группа"><strong>${escapeHtml(participant?.name || "Не найдено")}</strong>${participant?.kind === 'group' ? membersControl : simple ? '' : courseSelect}</td>
       <td class="class-cell" data-label="Класс">${escapeHtml(row.className || (courseOptionsFor(row.studentId, row.employeeId).length ? 'Выберите предмет' : participant?.className || ""))}</td>
       <td class="schedule-type-cell" data-label="Предмет"><select class="type-input" aria-label="Предмет" data-schedule-id="${row.id}" data-schedule-field="type">${lessonTypeOptions(row.type)}</select>${simple ? courseSelect : ''}</td>
       <td class="schedule-ped-cell" data-label="Пед."><input class="hours-input" type="text" inputmode="decimal" aria-label="Педагогические часы" value="${escapeAttr(row.pedHours)}" data-schedule-id="${escapeAttr(row.id)}" data-schedule-field="pedHours" data-hour-field /></td>
@@ -1991,10 +2093,11 @@ function renderSchedulePrintSheet() {
 
 function renderSchedulePrintRow(row) {
   const participant = participantById(row.studentId);
+  const groupDetails = participant?.kind === 'group' ? `<small>Состав (${lessonMemberIds(row).length}): ${lessonMemberIds(row).map(id => escapeHtml(state.students.find(s => s.id === id)?.name || 'Ученик не загружен')).join(', ')}. По составу: ${formatNumber(SchoolModel.lessonHours(row) * lessonMemberIds(row).length)} чел.-ч.</small>` : '';
   return `
     <tr>
       <td>${escapeHtml(weekdays[row.weekday] || "")}</td>
-      <td><strong>${escapeHtml(participant?.name || "Не найдено")}</strong><small>${escapeHtml(SchoolModel.subjectLabel(row))}</small></td>
+      <td><strong>${escapeHtml(participant?.name || "Не найдено")}</strong><small>${escapeHtml(SchoolModel.subjectLabel(row))}</small>${groupDetails}</td>
       <td>${escapeHtml(row.className || participant?.className || "")}</td>
       <td>${formatNumber(row.pedHours)}</td>
       <td>${formatNumber(row.kcHours)}</td>
@@ -2055,7 +2158,7 @@ function renderJournal() {
     return;
   }
 
-  const columnCount = dates.length + 4;
+  const columnCount = dates.length + 5;
   const rows = journalSections(records).map((section) => `
     <tr class="journal-program-row"><td colspan="${columnCount}">${escapeHtml(section.educationForm)}</td></tr>
     ${section.subjects.map((subject) => `
@@ -2070,6 +2173,7 @@ function renderJournal() {
             ${cells}
             <td class="summary-cell">${formatNumber(sum(countable, "pedHours"))}</td>
             <td class="summary-cell">${formatNumber(sum(countable, "kcHours"))}</td>
+            <td class="summary-cell">${renderPersonHoursTotal(countable)}</td>
           </tr>
         `;
       }).join("")}
@@ -2085,8 +2189,9 @@ function renderJournal() {
           <th class="student-cell">Фамилия и имя обучающегося</th>
           <th class="class-cell">Класс</th>
           ${head}
-          <th>Пед.</th>
-          <th>Конц.</th>
+          <th class="summary-cell">Пед.</th>
+          <th class="summary-cell">Конц.</th>
+          <th class="summary-cell">Чел.-ч.</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
@@ -2096,13 +2201,28 @@ function renderJournal() {
       ${renderJournalTotal("ДОП", totals.dop)}
       ${renderJournalTotal("Итого", totals.total)}
     </div>
+    <p class="muted-note person-hours-note">Человеко-часы: 1 учебный час (40 минут) × число присутствующих. «Не отмечено» означает, что посещаемость ещё не заполнена. В итог входят только отмеченные занятия до сегодняшней даты.</p>
+    ${renderAttendancePrintReport(records)}
   `;
 }
 
+function renderPersonHoursTotal(records) {
+  const eligible = records.filter(r => r.date <= todayISO());
+  const known = eligible.map(SchoolModel.personHours).filter(value => value !== null);
+  const pending = eligible.length - known.length;
+  return `${!known.length && pending ? '—' : formatNumber(known.reduce((a,b) => a+b,0))}${pending ? ` <small>(не отмечено: ${pending})</small>` : ''}`;
+}
+
+function renderAttendancePrintReport(records) {
+  const groups = records.filter(r => r.participantKind === 'group' && Array.isArray(r.participantIds)).sort((a,b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
+  if (!groups.length) return '';
+  return `<section class="print-attendance-report"><h3>Состав групповых занятий и посещаемость</h3><p>+ присутствовал; − отсутствовал; ? посещаемость не заполнена.</p><table><thead><tr><th>Дата · время</th><th>Группа · предмет · класс</th><th>Ученики</th><th>Чел.-ч.</th></tr></thead><tbody>${groups.map(r => `<tr><td>${formatDate(r.date)}<br>${escapeHtml(r.time)}</td><td>${escapeHtml(r.studentName || studentName(r.studentId))}<br>${escapeHtml(SchoolModel.subjectLabel(r))} · ${escapeHtml(r.className || '')}</td><td>${r.participantIds.map(id => `${Array.isArray(r.presentStudentIds) ? r.presentStudentIds.includes(id) ? '+' : '−' : '?'} ${escapeHtml(r.participantNames?.[id] || state.students.find(s => s.id === id)?.name || 'Ученик не загружен')}`).join('; ')}</td><td>${SchoolModel.personHours(r) === null ? 'Не отмечено' : formatNumber(SchoolModel.personHours(r))}</td></tr>`).join('')}</tbody></table></section>`;
+}
+
 function journalTotals(records) {
-  const total = { ped: 0, kc: 0 };
-  const dpp = { ped: 0, kc: 0 };
-  const dop = { ped: 0, kc: 0 };
+  const total = { ped: 0, kc: 0, person: 0, pending: 0 };
+  const dpp = { ped: 0, kc: 0, person: 0, pending: 0 };
+  const dop = { ped: 0, kc: 0, person: 0, pending: 0 };
 
   records.filter(countableRecord).forEach((record) => {
     const target = normalizeEducationForm(record.educationForm || educationFormForParticipant(record.studentId)) === "ДОП" ? dop : dpp;
@@ -2112,6 +2232,11 @@ function journalTotals(records) {
     target.kc += kc;
     total.ped += ped;
     total.kc += kc;
+    if (record.date <= todayISO()) {
+      const person = SchoolModel.personHours(record);
+      if (person === null) { target.pending++; total.pending++; }
+      else { target.person += person; total.person += person; }
+    }
   });
   return { dpp, dop, total };
 }
@@ -2123,6 +2248,7 @@ function renderJournalTotal(label, hours) {
       <span>Пед.: ${formatNumber(hours.ped)}</span>
       <span>Кц: ${formatNumber(hours.kc)}</span>
       <b>Всего: ${formatNumber(hours.ped + hours.kc)}</b>
+      <span>Чел.-ч.: ${formatNumber(hours.person || 0)}${hours.pending ? ` (не отмечено: ${hours.pending})` : ''}</span>
     </div>
   `;
 }
@@ -2137,10 +2263,13 @@ function renderJournalCell(entry, date) {
     const room = record.room || schedule?.room || '';
     const details = [record.time, room ? `каб. ${room}` : '', `Пед. ${formatNumber(record.pedHours)}`, `Кц ${formatNumber(record.kcHours)}`]
       .filter(Boolean).join(' · ');
+    const human = SchoolModel.personHours(record);
+    const attendanceLabel = human === null ? 'Не отмечено' : `${new Set(record.presentStudentIds.filter(id => record.participantIds.includes(id))).size}/${SchoolModel.memberIds(record).length} · ${formatNumber(human)} чел.-ч.`;
+    const roster = Array.isArray(record.participantIds) ? record.participantIds.map(id => record.participantNames?.[id] || state.students.find(s => s.id === id)?.name || 'Ученик не загружен').join(', ') : '';
     return `
-      <span class="grade-control"><span class="grade-value" aria-hidden="true">${escapeHtml(grade || '•')}</span><select class="grade-select" aria-label="Оценка ${escapeAttr(entry.name)} за ${escapeAttr(date)}" title="${escapeHtml(record.time)} ${escapeHtml(SchoolModel.subjectLabel(record))} · ${formatNumber(record.pedHours)} пед. / ${formatNumber(record.kcHours)} конц." data-grade-record="${record.id}">
+      <span class="journal-lesson"><span class="grade-control"><span class="grade-value" aria-hidden="true">${escapeHtml(grade || '•')}</span><select class="grade-select" aria-label="Оценка ${escapeAttr(entry.name)} за ${escapeAttr(date)}" title="${escapeHtml(record.time)} ${escapeHtml(SchoolModel.subjectLabel(record))} · ${formatNumber(record.pedHours)} пед. / ${formatNumber(record.kcHours)} конц." data-grade-record="${record.id}">
         ${gradeOptions(grade)}
-      </select><small class="print-lesson-details">${escapeHtml(details)}</small></span>
+      </select></span><button type="button" class="attendance-button" data-action="lessonAttendance:${escapeAttr(record.id)}" aria-label="Посещаемость ${escapeAttr(entry.name)} за ${escapeAttr(date)}" title="${escapeAttr(roster)}" ${date > todayISO() ? 'disabled' : ''}>${date > todayISO() ? 'План' : escapeHtml(attendanceLabel)}</button><small class="print-lesson-details">${escapeHtml(details)}<br>${escapeHtml(attendanceLabel)}</small></span>
     `;
   }).join("");
 
@@ -2507,11 +2636,9 @@ function visibleGroups() {
 function visibleParticipants() {
   const groups = visibleGroups().map((group) => ({ ...group, kind: "group" }));
   const directStudents = visibleStudents().map((student) => ({ ...student, kind: "student" }));
-  const groupStudentIds = new Set(groups.flatMap((group) => group.studentIds || []));
-  const groupStudents = state.students
-    .filter((student) => groupStudentIds.has(student.id))
-    .map((student) => ({ ...student, kind: "student" }));
-  return uniqueById([...directStudents, ...groupStudents, ...groups]);
+  // Group-only pupils are selected inside a lesson roster. The server requires
+  // a direct teacher assignment before accepting a separate individual lesson.
+  return uniqueById([...directStudents, ...groups]);
 }
 
 function participantById(id) {
