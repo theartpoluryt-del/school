@@ -11,14 +11,15 @@ function load(name, context) {
 function fixture() {
   let seq=0;
   const ctx=vm.createContext({
-    state:{schedule:[],records:[],students:[],groups:[]},
+    state:{schedule:[],records:[],students:[],groups:[],activeEmployeeId:'t'},
     todayISO:()=> '2026-09-15',
     monthDates:()=>['2026-09-14','2026-09-21'],
     parseISO:d=>new Date(d+'T12:00:00'),isHoliday:()=>false,createId:()=>`id-${++seq}`,
     studentName:()=> 'Test pupil',educationFormForParticipant:()=> 'ДПП',
-    SchoolModel:require('../school-model.js'),escapeHtml:s=>String(s),escapeAttr:s=>String(s),formatNumber:String
+    SchoolModel:require('../school-model.js'),escapeHtml:s=>String(s),escapeAttr:s=>String(s),formatNumber:String,
+    formatDate:String,openModal:(title,html)=>{ctx.modalHtml=html;}
   });
-  ['refreshJournalMonth','activeScheduleForEmployeeDate','gradeOptions','renderJournalCell','snapshotLessonMembers','lessonMemberIds'].forEach(n=>load(n,ctx));
+  ['refreshJournalMonth','activeScheduleForEmployeeDate','gradeOptions','renderJournalCell','snapshotLessonMembers','lessonMemberIds','openLessonAttendance'].forEach(n=>load(n,ctx));
   return ctx;
 }
 test('old and new schedule retain their effective periods and grade IDs',()=>{
@@ -73,5 +74,47 @@ test('numeric and string grades render a visible value and selected option',()=>
     assert(html.includes(`aria-hidden="true">${grade}</span>`));
     assert(html.includes(`value="${grade}" selected`));
     assert(html.includes('Пед.'));
+  }
+});
+
+function checkedAttendanceIds(html) {
+  return [...html.matchAll(/<input[^>]*name="presentIds"[^>]*value="([^"]+)"[^>]* checked\s*\//g)].map(match=>match[1]);
+}
+
+test('unrecorded group attendance defaults to all members without persisting attendance',()=>{
+  const c=fixture();
+  c.state.records=[{id:'r',employeeId:'t',studentId:'g',date:'2026-09-14',time:'10:00-10:40',participantIds:['a','b'],participantNames:{a:'A',b:'B'}}];
+  const before=JSON.stringify(c.state.records);
+  c.openLessonAttendance('r');
+  assert.deepEqual(checkedAttendanceIds(c.modalHtml),['a','b']);
+  assert.equal(JSON.stringify(c.state.records),before);
+  assert.equal(c.SchoolModel.personHours(c.state.records[0]),null);
+});
+
+test('legacy individual attendance defaults to the pupil checked',()=>{
+  const c=fixture();
+  c.state.students=[{id:'a',name:'A'}];
+  c.state.records=[{id:'r',employeeId:'t',studentId:'a',date:'2026-09-14',time:'10:00-10:40'}];
+  c.openLessonAttendance('r');
+  assert.deepEqual(checkedAttendanceIds(c.modalHtml),['a']);
+  assert.equal(c.state.records[0].participantIds,undefined);
+  assert.equal(c.state.records[0].presentStudentIds,undefined);
+});
+
+test('saved attendance remains unchanged, including nobody present',()=>{
+  for(const presentStudentIds of [['b'],[]]) {
+    const c=fixture();
+    c.state.records=[{id:'r',employeeId:'t',studentId:'g',date:'2026-09-14',participantIds:['a','b'],presentStudentIds}];
+    c.openLessonAttendance('r');
+    assert.deepEqual(checkedAttendanceIds(c.modalHtml),presentStudentIds);
+  }
+});
+
+test('attendance cannot be opened for future lessons or another employee',()=>{
+  for(const overrides of [{date:'2026-09-21'},{employeeId:'other'}]) {
+    const c=fixture();
+    c.state.records=[{id:'r',employeeId:'t',studentId:'a',date:'2026-09-14',...overrides}];
+    c.openLessonAttendance('r');
+    assert.equal(c.modalHtml,undefined);
   }
 });

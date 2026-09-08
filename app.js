@@ -1173,11 +1173,12 @@ function openLessonAttendance(id) {
   const row = state.schedule.find(r => r.id === record.scheduleId) || record;
   const snapshot = Array.isArray(record.participantIds) ? record : snapshotLessonMembers(row);
   const ids = SchoolModel.memberIds(snapshot);
+  const presentIds = Array.isArray(record.presentStudentIds) ? record.presentStudentIds : ids;
   openModal(`Посещаемость: ${escapeHtml(studentName(record.studentId))} — ${formatDate(record.date)}`, `<form class="modal-form" data-modal-form="lessonAttendance" data-record-id="${escapeAttr(id)}">
     <p>${escapeHtml(SchoolModel.subjectLabel(record))} · ${escapeHtml(record.time)} · ${formatNumber(SchoolModel.lessonHours(record))} уч. ч.</p>
-    <p class="muted-note">Отметьте тех, кто пришёл. Если никого не было, оставьте все поля пустыми. Человеко-часы = длительность × число присутствующих.</p>
+    <p class="muted-note">Если посещаемость ещё не сохранена, все ученики отмечены как присутствующие. Снимите отметки с отсутствующих и сохраните. Если никто не пришёл, снимите все отметки. Человеко-часы = длительность × число присутствующих.</p>
     <div class="attendance-actions"><button type="button" class="ghost-button" data-action="attendanceAll">Пришли все</button><button type="button" class="ghost-button" data-action="attendanceNone">Снять все отметки</button></div>
-    <div class="lesson-member-list">${ids.map(memberId => `<label class="checkbox-label"><input type="checkbox" name="presentIds" value="${escapeAttr(memberId)}" ${(record.presentStudentIds || []).includes(memberId) ? 'checked' : ''} />${escapeHtml(snapshot.participantNames?.[memberId] || state.students.find(s => s.id === memberId)?.name || 'Ученик не загружен')}</label>`).join('') || '<p>Состав пока пуст. Выберите учеников в расписании.</p>'}</div>
+    <div class="lesson-member-list">${ids.map(memberId => `<label class="checkbox-label"><input type="checkbox" name="presentIds" value="${escapeAttr(memberId)}" ${presentIds.includes(memberId) ? 'checked' : ''} />${escapeHtml(snapshot.participantNames?.[memberId] || state.students.find(s => s.id === memberId)?.name || 'Ученик не загружен')}</label>`).join('') || '<p>Состав пока пуст. Выберите учеников в расписании.</p>'}</div>
     <button class="primary-button" type="submit" ${ids.length ? '' : 'disabled'}>Сохранить посещаемость</button></form>`);
 }
 
