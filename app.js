@@ -166,6 +166,7 @@ document.addEventListener("click", (event) => {
   if (name === "openEmployeeModal") openEmployeeModal(id === "add" ? "" : id);
   if (name === "openGroupModal") openGroupModal();
   if (name === "assignStudent") openAssignStudentModal(id);
+  if (name === "assignStudentsToSelf") openAssignStudentsToSelf();
   if (name === "assignGroup") openAssignGroupModal(id);
   if (name === "deleteGroup") deleteGroup(id);
   if (name === "peoplePage") setPeoplePage(id);
@@ -186,6 +187,7 @@ document.addEventListener("submit", async (event) => {
   if (type === "employee") await addEmployeeFromModal(form);
   if (type === "group") addGroupFromModal(form);
   if (type === "assignStudent") assignStudentFromModal(form);
+  if (type === "assignStudentsToSelf") assignStudentsToSelf(form);
   if (type === "assignGroup") assignGroupFromModal(form);
   if (type === "holiday") addHolidayFromModal(form);
   if (type === "schedule") addScheduleFromModal(form);
@@ -1064,6 +1066,34 @@ function openScheduleModal(weekday) {
   refreshModalCourses(document.querySelector('[data-modal-form="schedule"]'));
 }
 
+function openAssignStudentsToSelf() {
+  if (!isAdmin()) return;
+  const employee = currentUser();
+  openModal("Назначить учеников себе", `<form class="modal-form" data-modal-form="assignStudentsToSelf">
+    <p>Ученики будут назначены вашему аккаунту: <strong>${escapeHtml(employee.name)} (${escapeHtml(employee.username)})</strong>.</p>
+    <p class="muted-note">Выберите одного или нескольких учеников. Их существующие назначения другим преподавателям сохранятся.</p>
+    ${studentPicker([])}
+    <button class="primary-button" type="submit">Назначить моему аккаунту</button>
+  </form>`);
+}
+
+function assignStudentsToSelf(form) {
+  if (!isAdmin()) return;
+  const employee = currentUser();
+  const selected = new Set(selectedStudentIdsFromForm(form));
+  const students = state.students.filter(student => selected.has(student.id) && !student.isArchived);
+  if (!students.length) { alert("Выберите хотя бы одного ученика."); return; }
+  students.forEach(student => {
+    student.assignedEmployeeIds = uniqueByIdValues([...(student.assignedEmployeeIds || []), employee.id]);
+  });
+  state.activeEmployeeId = employee.id;
+  document.querySelector('#adminStudentScope').checked = true;
+  document.querySelector('#studentSearch').value = '';
+  document.querySelector('#studentInstrumentFilter').value = '';
+  closeModal();
+  persistAndRender();
+}
+
 function courseOptionsFor(participantId, employeeId = state.activeEmployeeId) {
   return SchoolModel.courses(participantById(participantId), employeeId);
 }
@@ -1411,6 +1441,7 @@ function addGroupFromModal(form) {
 }
 
 function assignStudentFromModal(form) {
+  if (!isAdmin()) return;
   const student = state.students.find((item) => item.id === form.dataset.studentId);
   if (!student) return;
   student.educationForms = uniqueTextValues(checkedValues(form, "educationForms")).filter((value) => educationForms.includes(value));
@@ -2617,7 +2648,7 @@ function isAdmin() {
 }
 
 function isTeachingEmployee(employee) {
-  return Boolean(employee) && employee.position !== "Администратор";
+  return Boolean(employee) && (employee.position !== "Администратор" || employee.isAdmin);
 }
 
 function visibleEmployees() {
@@ -2895,6 +2926,7 @@ function teacherCheckboxes(selectedIds) {
       <label class="checkbox-label">
         <input type="checkbox" name="employeeIds" value="${employee.id}" ${selectedIds.includes(employee.id) ? "checked" : ""} />
         ${escapeHtml(employee.name)}${employeeInstrument(employee) ? ` · ${escapeHtml(employeeInstrument(employee))}` : ""}
+        ${employee.id === state.sessionEmployeeId ? ' (вы)' : ''}
       </label>
     `).join("");
 }
