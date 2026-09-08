@@ -18,10 +18,16 @@ The migration is rerunnable. It also removes legacy `password` fields from every
 Each schedule row can store `participantIds` for a subgroup without changing the master group.
 Generated journal records snapshot these IDs and their `participantNames`. Saving attendance sets
 `presentStudentIds` (an empty array explicitly means nobody attended), `attendanceLessonHours`,
-and `attendanceRecordedAt`. An absent attendance array means unknown, not zero.
+and `attendanceRecordedAt`. An absent attendance array means no manual override: the journal
+counts the whole lesson roster as present through today's date, including legacy records.
+Future lessons remain planned and do not contribute person-hours. `journalAttendance` resolves
+this default consistently for the journal cells, totals, attendance editor and printed report,
+without rewriting stored records or issuing cloud saves on render. Saved arrays, including `[]`,
+always override the default. A missing/empty roster is shown as needing a roster, not counted as a pupil.
 One academic hour is 40 minutes; person-hours multiply actual lesson duration by distinct present pupils,
 not the sum of two staff members' work. Unmarked rosters follow schedule edits; confirmed attendance
-keeps its roster and duration. Legacy records are not assigned presumed attendance.
+keeps its roster and duration. Legacy records without a roster snapshot use their schedule's
+roster (or the individual pupil/group membership) until attendance is explicitly saved.
 
 Teachers receive minimal identity data for pupils in their assigned groups, not those pupils' other
 enrollments. The save RPC rejects unrelated participant IDs, duplicates and attendance outside the roster.

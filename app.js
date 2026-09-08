@@ -1140,8 +1140,28 @@ function lessonMemberIds(row) {
 
 function snapshotLessonMembers(row) {
   const participantIds = lessonMemberIds(row);
-  return {participantKind: state.groups.some(g => g.id === row.studentId) ? 'group' : 'student', participantIds,
+  return {participantKind: row.participantKind === 'group' || state.groups.some(g => g.id === row.studentId) ? 'group' : 'student', participantIds,
     participantNames: Object.fromEntries(participantIds.map(id => [id, state.students.find(s => s.id === id)?.name || '']))};
+}
+
+function journalAttendance(record) {
+  const row = state.schedule.find(r => r.id === record.scheduleId && r.employeeId === record.employeeId && r.studentId === record.studentId) || record;
+  const snapshot = Array.isArray(record.participantIds) ? record : snapshotLessonMembers(row);
+  const participantIds = SchoolModel.memberIds(snapshot);
+  const planned = !record.date || record.date > todayISO();
+  const defaultApplied = !planned && !Array.isArray(record.presentStudentIds);
+  const presentStudentIds = planned ? [] : [...new Set((defaultApplied ? participantIds : record.presentStudentIds || []).filter(id => participantIds.includes(id)))];
+  // Resolve the default without writing attendance or generating cloud saves on render.
+  // Explicit saved absences (including an empty array) always take precedence.
+  const personHours = planned || !participantIds.length ? null : SchoolModel.personHours({...record, participantIds, presentStudentIds});
+  return {participantIds, participantNames: snapshot.participantNames || {}, presentStudentIds, personHours, planned, defaultApplied,
+    participantKind: snapshot.participantKind === 'group' || state.groups.some(g => g.id === record.studentId) ? 'group' : 'student'};
+}
+
+function journalAttendanceLabel(attendance) {
+  if (attendance.planned) return 'План';
+  if (attendance.personHours === null) return 'Нет состава';
+  return `${attendance.presentStudentIds.length}/${attendance.participantIds.length} · ${formatNumber(attendance.personHours)} чел.-ч.`;
 }
 
 function openLessonMembers(id) {
@@ -1170,15 +1190,14 @@ function saveLessonMembers(form) {
 function openLessonAttendance(id) {
   const record = state.records.find(r => r.id === id && r.employeeId === state.activeEmployeeId);
   if (!record || record.date > todayISO()) return;
-  const row = state.schedule.find(r => r.id === record.scheduleId) || record;
-  const snapshot = Array.isArray(record.participantIds) ? record : snapshotLessonMembers(row);
-  const ids = SchoolModel.memberIds(snapshot);
-  const presentIds = Array.isArray(record.presentStudentIds) ? record.presentStudentIds : ids;
+  const attendance = journalAttendance(record);
+  const ids = attendance.participantIds;
+  const presentIds = attendance.presentStudentIds;
   openModal(`Посещаемость: ${escapeHtml(studentName(record.studentId))} — ${formatDate(record.date)}`, `<form class="modal-form" data-modal-form="lessonAttendance" data-record-id="${escapeAttr(id)}">
     <p>${escapeHtml(SchoolModel.subjectLabel(record))} · ${escapeHtml(record.time)} · ${formatNumber(SchoolModel.lessonHours(record))} уч. ч.</p>
-    <p class="muted-note">Если посещаемость ещё не сохранена, все ученики отмечены как присутствующие. Снимите отметки с отсутствующих и сохраните. Если никто не пришёл, снимите все отметки. Человеко-часы = длительность × число присутствующих.</p>
+    <p class="muted-note">По умолчанию все ученики присутствуют и уже учтены в человеко-часах журнала. Если кто-то не пришёл, снимите его отметку и сохраните изменения. Ранее сохранённые отсутствия не меняются.</p>
     <div class="attendance-actions"><button type="button" class="ghost-button" data-action="attendanceAll">Пришли все</button><button type="button" class="ghost-button" data-action="attendanceNone">Снять все отметки</button></div>
-    <div class="lesson-member-list">${ids.map(memberId => `<label class="checkbox-label"><input type="checkbox" name="presentIds" value="${escapeAttr(memberId)}" ${presentIds.includes(memberId) ? 'checked' : ''} />${escapeHtml(snapshot.participantNames?.[memberId] || state.students.find(s => s.id === memberId)?.name || 'Ученик не загружен')}</label>`).join('') || '<p>Состав пока пуст. Выберите учеников в расписании.</p>'}</div>
+    <div class="lesson-member-list">${ids.map(memberId => `<label class="checkbox-label"><input type="checkbox" name="presentIds" value="${escapeAttr(memberId)}" ${presentIds.includes(memberId) ? 'checked' : ''} />${escapeHtml(attendance.participantNames[memberId] || state.students.find(s => s.id === memberId)?.name || 'Ученик не загружен')}</label>`).join('') || '<p>Состав пока пуст. Выберите учеников в расписании.</p>'}</div>
     <button class="primary-button" type="submit" ${ids.length ? '' : 'disabled'}>Сохранить посещаемость</button></form>`);
 }
 
@@ -2244,22 +2263,24 @@ function renderJournal() {
       ${renderJournalTotal("ДОП", totals.dop)}
       ${renderJournalTotal("Итого", totals.total)}
     </div>
-    <p class="muted-note person-hours-note">Человеко-часы: 1 учебный час (40 минут) × число присутствующих. «Не отмечено» означает, что посещаемость ещё не заполнена. В итог входят только отмеченные занятия до сегодняшней даты.</p>
+    <p class="muted-note person-hours-note">Человеко-часы: 1 учебный час (40 минут) × число присутствующих. На занятиях по сегодняшнюю дату включительно все ученики присутствуют по умолчанию. Чтобы отметить отсутствие, нажмите на посещаемость под оценкой. Будущие занятия («План») в человеко-часы не входят.</p>
     ${renderAttendancePrintReport(records)}
   `;
 }
 
 function renderPersonHoursTotal(records) {
   const eligible = records.filter(r => r.date <= todayISO());
-  const known = eligible.map(SchoolModel.personHours).filter(value => value !== null);
+  const known = eligible.map(r => journalAttendance(r).personHours).filter(value => value !== null);
   const pending = eligible.length - known.length;
-  return `${!known.length && pending ? '—' : formatNumber(known.reduce((a,b) => a+b,0))}${pending ? ` <small>(не отмечено: ${pending})</small>` : ''}`;
+  return `${!known.length && pending ? '—' : formatNumber(known.reduce((a,b) => a+b,0))}${pending ? ` <small>(нет состава: ${pending})</small>` : ''}`;
 }
 
 function renderAttendancePrintReport(records) {
-  const groups = records.filter(r => r.participantKind === 'group' && Array.isArray(r.participantIds)).sort((a,b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
+  const groups = records.map(record => ({record, attendance: journalAttendance(record)}))
+    .filter(({attendance}) => attendance.participantKind === 'group')
+    .sort((a,b) => a.record.date.localeCompare(b.record.date) || a.record.time.localeCompare(b.record.time));
   if (!groups.length) return '';
-  return `<section class="print-attendance-report"><h3>Состав групповых занятий и посещаемость</h3><p>+ присутствовал; − отсутствовал; ? посещаемость не заполнена.</p><table><thead><tr><th>Дата · время</th><th>Группа · предмет · класс</th><th>Ученики</th><th>Чел.-ч.</th></tr></thead><tbody>${groups.map(r => `<tr><td>${formatDate(r.date)}<br>${escapeHtml(r.time)}</td><td>${escapeHtml(r.studentName || studentName(r.studentId))}<br>${escapeHtml(SchoolModel.subjectLabel(r))} · ${escapeHtml(r.className || '')}</td><td>${r.participantIds.map(id => `${Array.isArray(r.presentStudentIds) ? r.presentStudentIds.includes(id) ? '+' : '−' : '?'} ${escapeHtml(r.participantNames?.[id] || state.students.find(s => s.id === id)?.name || 'Ученик не загружен')}`).join('; ')}</td><td>${SchoolModel.personHours(r) === null ? 'Не отмечено' : formatNumber(SchoolModel.personHours(r))}</td></tr>`).join('')}</tbody></table></section>`;
+  return `<section class="print-attendance-report"><h3>Состав групповых занятий и посещаемость</h3><p>+ присутствует; − отсутствует; · план. По сегодняшнюю дату включительно все присутствуют по умолчанию, если отсутствие не отмечено вручную.</p><table><thead><tr><th>Дата · время</th><th>Группа · предмет · класс</th><th>Ученики</th><th>Чел.-ч.</th></tr></thead><tbody>${groups.map(({record: r, attendance: a}) => `<tr><td>${formatDate(r.date)}<br>${escapeHtml(r.time)}</td><td>${escapeHtml(r.studentName || studentName(r.studentId))}<br>${escapeHtml(SchoolModel.subjectLabel(r))} · ${escapeHtml(r.className || '')}</td><td>${a.participantIds.map(id => `${a.planned ? '·' : a.presentStudentIds.includes(id) ? '+' : '−'} ${escapeHtml(a.participantNames[id] || state.students.find(s => s.id === id)?.name || 'Ученик не загружен')}`).join('; ') || 'Нет состава'}</td><td>${a.planned ? 'План' : a.personHours === null ? 'Нет состава' : formatNumber(a.personHours)}</td></tr>`).join('')}</tbody></table></section>`;
 }
 
 function journalTotals(records) {
@@ -2276,7 +2297,7 @@ function journalTotals(records) {
     total.ped += ped;
     total.kc += kc;
     if (record.date <= todayISO()) {
-      const person = SchoolModel.personHours(record);
+      const person = journalAttendance(record).personHours;
       if (person === null) { target.pending++; total.pending++; }
       else { target.person += person; total.person += person; }
     }
@@ -2291,7 +2312,7 @@ function renderJournalTotal(label, hours) {
       <span>Пед.: ${formatNumber(hours.ped)}</span>
       <span>Кц: ${formatNumber(hours.kc)}</span>
       <b>Всего: ${formatNumber(hours.ped + hours.kc)}</b>
-      <span>Чел.-ч.: ${formatNumber(hours.person || 0)}${hours.pending ? ` (не отмечено: ${hours.pending})` : ''}</span>
+      <span>Чел.-ч.: ${formatNumber(hours.person || 0)}${hours.pending ? ` (нет состава: ${hours.pending})` : ''}</span>
     </div>
   `;
 }
@@ -2306,13 +2327,14 @@ function renderJournalCell(entry, date) {
     const room = record.room || schedule?.room || '';
     const details = [record.time, room ? `каб. ${room}` : '', `Пед. ${formatNumber(record.pedHours)}`, `Кц ${formatNumber(record.kcHours)}`]
       .filter(Boolean).join(' · ');
-    const human = SchoolModel.personHours(record);
-    const attendanceLabel = human === null ? 'Не отмечено' : `${new Set(record.presentStudentIds.filter(id => record.participantIds.includes(id))).size}/${SchoolModel.memberIds(record).length} · ${formatNumber(human)} чел.-ч.`;
-    const roster = Array.isArray(record.participantIds) ? record.participantIds.map(id => record.participantNames?.[id] || state.students.find(s => s.id === id)?.name || 'Ученик не загружен').join(', ') : '';
+    const attendance = journalAttendance(record);
+    const attendanceLabel = journalAttendanceLabel(attendance);
+    const roster = attendance.participantIds.map(id => attendance.participantNames[id] || state.students.find(s => s.id === id)?.name || 'Ученик не загружен').join(', ');
+    const attendanceHint = [roster, attendance.defaultApplied ? 'Присутствуют по умолчанию. Нажмите, чтобы отметить отсутствие.' : ''].filter(Boolean).join('. ');
     return `
       <span class="journal-lesson"><span class="grade-control"><span class="grade-value" aria-hidden="true">${escapeHtml(grade || '•')}</span><select class="grade-select" aria-label="Оценка ${escapeAttr(entry.name)} за ${escapeAttr(date)}" title="${escapeHtml(record.time)} ${escapeHtml(SchoolModel.subjectLabel(record))} · ${formatNumber(record.pedHours)} пед. / ${formatNumber(record.kcHours)} конц." data-grade-record="${record.id}">
         ${gradeOptions(grade)}
-      </select></span><button type="button" class="attendance-button" data-action="lessonAttendance:${escapeAttr(record.id)}" aria-label="Посещаемость ${escapeAttr(entry.name)} за ${escapeAttr(date)}" title="${escapeAttr(roster)}" ${date > todayISO() ? 'disabled' : ''}>${date > todayISO() ? 'План' : escapeHtml(attendanceLabel)}</button><small class="print-lesson-details">${escapeHtml(details)}<br>${escapeHtml(attendanceLabel)}</small></span>
+      </select></span><button type="button" class="attendance-button" data-action="lessonAttendance:${escapeAttr(record.id)}" aria-label="Посещаемость ${escapeAttr(entry.name)} за ${escapeAttr(date)}" title="${escapeAttr(attendanceHint)}" ${attendance.planned ? 'disabled' : ''}>${escapeHtml(attendanceLabel)}</button><small class="print-lesson-details">${escapeHtml(details)}<br>${escapeHtml(attendanceLabel)}</small></span>
     `;
   }).join("");
 
