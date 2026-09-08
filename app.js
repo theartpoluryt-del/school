@@ -156,9 +156,7 @@ document.addEventListener("click", (event) => {
   if (name === "deleteScheduleArchive") deleteScheduleArchive(id);
   if (name === "printSchedule") printSchedule();
   if (name === "lessonMembers") openLessonMembers(id);
-  if (name === "lessonAttendance") openLessonAttendance(id);
   if (name === "lessonMembersClear") document.querySelectorAll('#modalContent input[name="lessonMemberIds"]').forEach(input => { input.checked = false; });
-  if (name === "attendanceAll" || name === "attendanceNone") document.querySelectorAll('[data-modal-form="lessonAttendance"] input[name="presentIds"]').forEach(input => { input.checked = name === "attendanceAll"; });
   if (name === "deleteStudent") deleteStudent(id);
   if (name === "deleteEmployee") deleteEmployee(id);
   if (name === "deleteHoliday") deleteHoliday(id);
@@ -193,7 +191,6 @@ document.addEventListener("submit", async (event) => {
   if (type === "schedule") addScheduleFromModal(form);
   if (type === "archiveSchedule") archiveCurrentSchedule(form);
   if (type === "lessonMembers") saveLessonMembers(form);
-  if (type === "lessonAttendance") saveLessonAttendance(form);
 });
 
 document.addEventListener("dragstart", (event) => {
@@ -1144,24 +1141,24 @@ function snapshotLessonMembers(row) {
     participantNames: Object.fromEntries(participantIds.map(id => [id, state.students.find(s => s.id === id)?.name || '']))};
 }
 
-function journalAttendance(record) {
-  const row = state.schedule.find(r => r.id === record.scheduleId && r.employeeId === record.employeeId && r.studentId === record.studentId) || record;
-  const snapshot = Array.isArray(record.participantIds) ? record : snapshotLessonMembers(row);
+function journalLessonRoster(record) {
+  const row = state.schedule.find(r => r.id === record.scheduleId && r.employeeId === record.employeeId && r.studentId === record.studentId);
+  // An explicit subgroup on this exact schedule row overrides stale journal snapshots.
+  // Never look up a different row merely because it belongs to the same group.
+  const source = row && Array.isArray(row.participantIds) ? row : Array.isArray(record.participantIds) ? record : row || record;
+  const snapshot = snapshotLessonMembers(source);
   const participantIds = SchoolModel.memberIds(snapshot);
   const planned = !record.date || record.date > todayISO();
-  const defaultApplied = !planned && !Array.isArray(record.presentStudentIds);
-  const presentStudentIds = planned ? [] : [...new Set((defaultApplied ? participantIds : record.presentStudentIds || []).filter(id => participantIds.includes(id)))];
-  // Resolve the default without writing attendance or generating cloud saves on render.
-  // Explicit saved absences (including an empty array) always take precedence.
-  const personHours = planned || !participantIds.length ? null : SchoolModel.personHours({...record, participantIds, presentStudentIds});
-  return {participantIds, participantNames: snapshot.participantNames || {}, presentStudentIds, personHours, planned, defaultApplied,
+  const participantNames = Object.fromEntries(participantIds.map(id => [id, snapshot.participantNames[id] || record.participantNames?.[id] || 'Ученик не загружен']));
+  const personHours = planned ? null : SchoolModel.personHours({...record, participantIds});
+  return {participantIds, participantNames, personHours, planned,
     participantKind: snapshot.participantKind === 'group' || state.groups.some(g => g.id === record.studentId) ? 'group' : 'student'};
 }
 
-function journalAttendanceLabel(attendance) {
-  if (attendance.planned) return 'План';
-  if (attendance.personHours === null) return 'Нет состава';
-  return `${attendance.presentStudentIds.length}/${attendance.participantIds.length} · ${formatNumber(attendance.personHours)} чел.-ч.`;
+function journalRosterLabel(roster) {
+  if (!roster.participantIds.length) return 'Нет состава';
+  if (roster.planned) return `План · ${roster.participantIds.length} уч.`;
+  return `${roster.participantIds.length} уч. · ${formatNumber(roster.personHours)} чел.-ч.`;
 }
 
 function openLessonMembers(id) {
@@ -1169,7 +1166,7 @@ function openLessonMembers(id) {
   const group = row && state.groups.find(g => g.id === row.studentId);
   if (!group) return;
   openModal(`Состав занятия: ${escapeHtml(group.name)}`, `<form class="modal-form" data-modal-form="lessonMembers" data-row-id="${escapeAttr(id)}">
-    <p class="muted-note">Выберите всех участников или подгруппу на это время. У уже отмеченных занятий состав сохраняется.</p>
+    <p class="muted-note">Выберите учеников именно на этот день и время. Этот состав автоматически используется в журнале и печати для занятий данной версии расписания.</p>
     ${lessonMemberCheckboxes(group, lessonMemberIds(row))}<button class="primary-button" type="submit">Сохранить состав</button></form>`);
 }
 
@@ -1183,32 +1180,6 @@ function saveLessonMembers(form) {
   row.participantIds = ids;
   row.participantKind = 'group';
   refreshGeneratedJournalForScheduleChange(row);
-  closeModal();
-  persistAndRender();
-}
-
-function openLessonAttendance(id) {
-  const record = state.records.find(r => r.id === id && r.employeeId === state.activeEmployeeId);
-  if (!record || record.date > todayISO()) return;
-  const attendance = journalAttendance(record);
-  const ids = attendance.participantIds;
-  const presentIds = attendance.presentStudentIds;
-  openModal(`Посещаемость: ${escapeHtml(studentName(record.studentId))} — ${formatDate(record.date)}`, `<form class="modal-form" data-modal-form="lessonAttendance" data-record-id="${escapeAttr(id)}">
-    <p>${escapeHtml(SchoolModel.subjectLabel(record))} · ${escapeHtml(record.time)} · ${formatNumber(SchoolModel.lessonHours(record))} уч. ч.</p>
-    <p class="muted-note">По умолчанию все ученики присутствуют и уже учтены в человеко-часах журнала. Если кто-то не пришёл, снимите его отметку и сохраните изменения. Ранее сохранённые отсутствия не меняются.</p>
-    <div class="attendance-actions"><button type="button" class="ghost-button" data-action="attendanceAll">Пришли все</button><button type="button" class="ghost-button" data-action="attendanceNone">Снять все отметки</button></div>
-    <div class="lesson-member-list">${ids.map(memberId => `<label class="checkbox-label"><input type="checkbox" name="presentIds" value="${escapeAttr(memberId)}" ${presentIds.includes(memberId) ? 'checked' : ''} />${escapeHtml(attendance.participantNames[memberId] || state.students.find(s => s.id === memberId)?.name || 'Ученик не загружен')}</label>`).join('') || '<p>Состав пока пуст. Выберите учеников в расписании.</p>'}</div>
-    <button class="primary-button" type="submit" ${ids.length ? '' : 'disabled'}>Сохранить посещаемость</button></form>`);
-}
-
-function saveLessonAttendance(form) {
-  const record = state.records.find(r => r.id === form.dataset.recordId && r.employeeId === state.activeEmployeeId);
-  if (!record || record.date > todayISO()) return;
-  if (!Array.isArray(record.participantIds)) Object.assign(record, snapshotLessonMembers(state.schedule.find(r => r.id === record.scheduleId) || record));
-  record.presentStudentIds = [...new Set(checkedValues(form, 'presentIds'))].filter(id => record.participantIds.includes(id));
-  record.attendanceRecordedAt = new Date().toISOString();
-  record.attendanceLessonHours = SchoolModel.lessonHours(record);
-  record.status = 'conducted';
   closeModal();
   persistAndRender();
 }
@@ -1834,10 +1805,14 @@ function refreshJournalMonth(month, asOf, employeeId) {
         )
       ));
       if (previous) reusedRecordIds.add(previous.id);
+      const previousLesson = {...previous};
+      // Obsolete attendance fields must not freeze the roster or violate its server subset check.
+      delete previousLesson.presentStudentIds;
+      delete previousLesson.attendanceRecordedAt;
+      delete previousLesson.attendanceLessonHours;
       state.records.push({
-        ...previous,
-        ...((previous && Array.isArray(previous.presentStudentIds))
-          ? {} : (!previous || Array.isArray(previous.participantIds) || previous.date > todayISO()) ? snapshotLessonMembers(row) : {}),
+        ...previousLesson,
+        ...snapshotLessonMembers(row),
         id: previous?.id || createId(),
         employeeId: row.employeeId,
         scheduleId: row.id,
@@ -2263,24 +2238,24 @@ function renderJournal() {
       ${renderJournalTotal("ДОП", totals.dop)}
       ${renderJournalTotal("Итого", totals.total)}
     </div>
-    <p class="muted-note person-hours-note">Человеко-часы: 1 учебный час (40 минут) × число присутствующих. На занятиях по сегодняшнюю дату включительно все ученики присутствуют по умолчанию. Чтобы отметить отсутствие, нажмите на посещаемость под оценкой. Будущие занятия («План») в человеко-часы не входят.</p>
-    ${renderAttendancePrintReport(records)}
+    <p class="muted-note person-hours-note">Человеко-часы = длительность занятия в учебных часах (40 минут) × число учеников в составе занятия из расписания, независимо от явки. Состав меняется только в расписании. Будущие занятия («План») в человеко-часы не входят.</p>
+    ${renderLessonRosterPrintReport(records)}
   `;
 }
 
 function renderPersonHoursTotal(records) {
   const eligible = records.filter(r => r.date <= todayISO());
-  const known = eligible.map(r => journalAttendance(r).personHours).filter(value => value !== null);
+  const known = eligible.map(r => journalLessonRoster(r).personHours).filter(value => value !== null);
   const pending = eligible.length - known.length;
   return `${!known.length && pending ? '—' : formatNumber(known.reduce((a,b) => a+b,0))}${pending ? ` <small>(нет состава: ${pending})</small>` : ''}`;
 }
 
-function renderAttendancePrintReport(records) {
-  const groups = records.map(record => ({record, attendance: journalAttendance(record)}))
-    .filter(({attendance}) => attendance.participantKind === 'group')
+function renderLessonRosterPrintReport(records) {
+  const groups = records.map(record => ({record, roster: journalLessonRoster(record)}))
+    .filter(({roster}) => roster.participantKind === 'group')
     .sort((a,b) => a.record.date.localeCompare(b.record.date) || a.record.time.localeCompare(b.record.time));
   if (!groups.length) return '';
-  return `<section class="print-attendance-report"><h3>Состав групповых занятий и посещаемость</h3><p>+ присутствует; − отсутствует; · план. По сегодняшнюю дату включительно все присутствуют по умолчанию, если отсутствие не отмечено вручную.</p><table><thead><tr><th>Дата · время</th><th>Группа · предмет · класс</th><th>Ученики</th><th>Чел.-ч.</th></tr></thead><tbody>${groups.map(({record: r, attendance: a}) => `<tr><td>${formatDate(r.date)}<br>${escapeHtml(r.time)}</td><td>${escapeHtml(r.studentName || studentName(r.studentId))}<br>${escapeHtml(SchoolModel.subjectLabel(r))} · ${escapeHtml(r.className || '')}</td><td>${a.participantIds.map(id => `${a.planned ? '·' : a.presentStudentIds.includes(id) ? '+' : '−'} ${escapeHtml(a.participantNames[id] || state.students.find(s => s.id === id)?.name || 'Ученик не загружен')}`).join('; ') || 'Нет состава'}</td><td>${a.planned ? 'План' : a.personHours === null ? 'Нет состава' : formatNumber(a.personHours)}</td></tr>`).join('')}</tbody></table></section>`;
+  return `<section class="print-roster-report"><h3>Состав групповых занятий по расписанию</h3><p>Человеко-часы рассчитаны по числу учеников в составе каждого занятия, независимо от явки.</p><table><thead><tr><th>Дата · время</th><th>Группа · предмет · класс</th><th>Ученики</th><th>Чел.-ч.</th></tr></thead><tbody>${groups.map(({record: r, roster}) => `<tr><td>${formatDate(r.date)}<br>${escapeHtml(r.time)}</td><td>${escapeHtml(r.studentName || studentName(r.studentId))}<br>${escapeHtml(SchoolModel.subjectLabel(r))} · ${escapeHtml(r.className || '')}</td><td>${roster.participantIds.map(id => escapeHtml(roster.participantNames[id])).join('; ') || 'Нет состава'}</td><td>${roster.planned ? 'План' : roster.personHours === null ? 'Нет состава' : formatNumber(roster.personHours)}</td></tr>`).join('')}</tbody></table></section>`;
 }
 
 function journalTotals(records) {
@@ -2297,7 +2272,7 @@ function journalTotals(records) {
     total.ped += ped;
     total.kc += kc;
     if (record.date <= todayISO()) {
-      const person = journalAttendance(record).personHours;
+      const person = journalLessonRoster(record).personHours;
       if (person === null) { target.pending++; total.pending++; }
       else { target.person += person; total.person += person; }
     }
@@ -2327,14 +2302,16 @@ function renderJournalCell(entry, date) {
     const room = record.room || schedule?.room || '';
     const details = [record.time, room ? `каб. ${room}` : '', `Пед. ${formatNumber(record.pedHours)}`, `Кц ${formatNumber(record.kcHours)}`]
       .filter(Boolean).join(' · ');
-    const attendance = journalAttendance(record);
-    const attendanceLabel = journalAttendanceLabel(attendance);
-    const roster = attendance.participantIds.map(id => attendance.participantNames[id] || state.students.find(s => s.id === id)?.name || 'Ученик не загружен').join(', ');
-    const attendanceHint = [roster, attendance.defaultApplied ? 'Присутствуют по умолчанию. Нажмите, чтобы отметить отсутствие.' : ''].filter(Boolean).join('. ');
+    const roster = journalLessonRoster(record);
+    const rosterLabel = journalRosterLabel(roster);
+    const rosterNames = roster.participantIds.map(id => escapeHtml(roster.participantNames[id])).join('<br>');
+    const rosterInfo = roster.participantKind === 'group' && roster.participantIds.length
+      ? `<details class="journal-roster"><summary aria-label="Состав занятия ${escapeAttr(entry.name)} за ${escapeAttr(date)}">${escapeHtml(rosterLabel)}</summary><div class="journal-roster-names">${rosterNames}</div></details>`
+      : `<span class="journal-roster-label">${escapeHtml(rosterLabel)}</span>`;
     return `
-      <span class="journal-lesson"><span class="grade-control"><span class="grade-value" aria-hidden="true">${escapeHtml(grade || '•')}</span><select class="grade-select" aria-label="Оценка ${escapeAttr(entry.name)} за ${escapeAttr(date)}" title="${escapeHtml(record.time)} ${escapeHtml(SchoolModel.subjectLabel(record))} · ${formatNumber(record.pedHours)} пед. / ${formatNumber(record.kcHours)} конц." data-grade-record="${record.id}">
+      <div class="journal-lesson"><span class="grade-control"><span class="grade-value" aria-hidden="true">${escapeHtml(grade || '•')}</span><select class="grade-select" aria-label="Оценка ${escapeAttr(entry.name)} за ${escapeAttr(date)}" title="${escapeHtml(record.time)} ${escapeHtml(SchoolModel.subjectLabel(record))} · ${formatNumber(record.pedHours)} пед. / ${formatNumber(record.kcHours)} конц." data-grade-record="${record.id}">
         ${gradeOptions(grade)}
-      </select></span><button type="button" class="attendance-button" data-action="lessonAttendance:${escapeAttr(record.id)}" aria-label="Посещаемость ${escapeAttr(entry.name)} за ${escapeAttr(date)}" title="${escapeAttr(attendanceHint)}" ${attendance.planned ? 'disabled' : ''}>${escapeHtml(attendanceLabel)}</button><small class="print-lesson-details">${escapeHtml(details)}<br>${escapeHtml(attendanceLabel)}</small></span>
+      </select></span>${rosterInfo}<small class="print-lesson-details">${escapeHtml(details)}<br>${escapeHtml(rosterLabel)}</small></div>
     `;
   }).join("");
 

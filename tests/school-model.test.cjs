@@ -9,13 +9,15 @@ test('four 40-minute lessons with 20 children equal 4 lesson hours and 80 person
   assert.equal(model.personHours(lesson)*4,80);
 });
 
-test('attendance is explicit, unique, roster-scoped and supports fractional hours',()=>{
+test('person-hours use the unique roster regardless of old attendance and support fractional hours',()=>{
   const lesson={time:'10:00-11:40',studentId:'group',participantIds:['a','b','c','c']};
-  assert.equal(model.personHours(lesson),null);
-  assert.equal(model.personHours({...lesson,presentStudentIds:[]}),0);
-  assert.equal(model.personHours({...lesson,presentStudentIds:['a','b','a','outsider']}),5);
+  assert.equal(model.personHours(lesson),7.5);
+  assert.equal(model.personHours({...lesson,presentStudentIds:[]}),7.5);
+  assert.equal(model.personHours({...lesson,presentStudentIds:['a','b','a','outsider']}),7.5);
   assert.equal(model.personHours({...lesson,presentStudentIds:['a','b','c']}),7.5);
-  assert.equal(model.personHours({...lesson,attendanceLessonHours:1,presentStudentIds:['a','b','c']}),3);
+  assert.equal(model.personHours({...lesson,attendanceLessonHours:1,presentStudentIds:['a','b','c']}),7.5);
+  assert.equal(model.personHours({...lesson,participantIds:[]}),null);
+  assert.equal(model.personHours({time:'10:00-10:40',studentId:'group'}),null);
   assert.deepEqual(model.memberIds({studentId:'a'}),['a']);
   assert.deepEqual(model.memberIds({studentId:'g'}, {studentIds:['a','a','b']}),['a','b']);
   assert.deepEqual(model.memberIds({studentId:'g',participantIds:[]},{studentIds:['a']}),[]);

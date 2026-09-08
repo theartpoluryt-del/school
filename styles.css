@@ -1671,20 +1671,20 @@ th {
   font-weight: 700;
 }
 
-.print-lesson-details, .print-attendance-report {
+.print-lesson-details, .print-roster-report {
   display: none;
 }
 .lesson-member-list { max-height: 320px; overflow-y: auto; margin: 12px 0; }
 .lesson-member-list .checkbox-label { min-height: 38px; padding: 6px 4px; }
 .lesson-member-list .checkbox-label[hidden] { display: none; }
-.attendance-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .lesson-members-button { margin: 8px 0; }
 .lesson-roster { margin-bottom: 6px; font-weight: 400; font-size: 12px; }
 .lesson-roster summary { cursor: pointer; color: var(--accent-strong); }
 .journal-lesson { display: grid; justify-items: center; gap: 3px; padding: 3px 0; }
-.attendance-button { padding: 4px; min-height: 30px; font: inherit; font-size: 10px; font-weight: 500; border: 1px solid var(--line); border-radius: 5px; background: white; color: var(--accent-strong); cursor: pointer; }
-.attendance-button:disabled { cursor: default; opacity: .6; }
-.attendance-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.journal-roster, .journal-roster-label { max-width: 160px; font-size: 10px; font-weight: 500; color: var(--accent-strong); }
+.journal-roster summary { cursor: pointer; padding: 4px; border: 1px solid var(--line); border-radius: 5px; }
+.journal-roster summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.journal-roster-names { padding: 6px 2px; line-height: 1.5; font-weight: 400; overflow-wrap: anywhere; }
 .summary-cell small { display: block; font-size: 10px; font-weight: 400; }
 .grade-control .grade-select {
   position: absolute;
@@ -1726,15 +1726,15 @@ th {
 }
 
 @media print {
-  .attendance-button { display: none; }
-  .print-attendance-report { display: block; break-before: page; font-size: 10px; }
-  .print-attendance-report table { width: 100%; border-collapse: collapse; }
-  .print-attendance-report th:nth-child(1) { width: 12%; }
-  .print-attendance-report th:nth-child(2) { width: 28%; }
-  .print-attendance-report th:nth-child(3) { width: 50%; }
-  .print-attendance-report th:nth-child(4) { width: 10%; }
-  .print-attendance-report th, .print-attendance-report td { border: 1px solid #999; padding: 5px; text-align: left; font-size: 10px; }
-  .print-attendance-report tr { break-inside: avoid; }
+  .journal-roster, .journal-roster-label { display: none; }
+  .print-roster-report { display: block; break-before: page; font-size: 10px; }
+  .print-roster-report table { width: 100%; border-collapse: collapse; }
+  .print-roster-report th:nth-child(1) { width: 12%; }
+  .print-roster-report th:nth-child(2) { width: 28%; }
+  .print-roster-report th:nth-child(3) { width: 50%; }
+  .print-roster-report th:nth-child(4) { width: 10%; }
+  .print-roster-report th, .print-roster-report td { border: 1px solid #999; padding: 5px; text-align: left; font-size: 10px; }
+  .print-roster-report tr { break-inside: avoid; }
   .journal-lesson { display: block; }
   .panel-toolbar label { display: none; }
   .person-hours-note { font-size: 9px; }

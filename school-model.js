@@ -50,11 +50,11 @@
     return Number.isFinite(hours) ? Math.max(0, hours) : 0;
   }
   function personHours(lesson) {
-    if (!Array.isArray(lesson.participantIds) || !Array.isArray(lesson.presentStudentIds)) return null;
-    const members = new Set(memberIds(lesson));
-    const present = new Set(lesson.presentStudentIds.filter(id => members.has(id)));
-    const hours = Number.isFinite(lesson.attendanceLessonHours) ? Math.max(0, lesson.attendanceLessonHours) : lessonHours(lesson);
-    return Math.round(hours * present.size * 100) / 100;
+    if (!Array.isArray(lesson.participantIds)) return null;
+    const members = memberIds(lesson);
+    if (!members.length) return null;
+    // Person-hours are allocated by the lesson roster, regardless of actual attendance.
+    return Math.round(lessonHours(lesson) * members.length * 100) / 100;
   }
   const api = { courses, courseLabel, courseChoices, applyCourse, endTime, subjectLabel, memberIds, lessonHours, personHours };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

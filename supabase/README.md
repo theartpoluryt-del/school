@@ -16,18 +16,19 @@ The migration is rerunnable. It also removes legacy `password` fields from every
 ## Group lesson rosters and person-hours
 
 Each schedule row can store `participantIds` for a subgroup without changing the master group.
-Generated journal records snapshot these IDs and their `participantNames`. Saving attendance sets
-`presentStudentIds` (an empty array explicitly means nobody attended), `attendanceLessonHours`,
-and `attendanceRecordedAt`. An absent attendance array means no manual override: the journal
-counts the whole lesson roster as present through today's date, including legacy records.
-Future lessons remain planned and do not contribute person-hours. `journalAttendance` resolves
-this default consistently for the journal cells, totals, attendance editor and printed report,
-without rewriting stored records or issuing cloud saves on render. Saved arrays, including `[]`,
-always override the default. A missing/empty roster is shown as needing a roster, not counted as a pupil.
-One academic hour is 40 minutes; person-hours multiply actual lesson duration by distinct present pupils,
-not the sum of two staff members' work. Unmarked rosters follow schedule edits; confirmed attendance
-keeps its roster and duration. Legacy records without a roster snapshot use their schedule's
-roster (or the individual pupil/group membership) until attendance is explicitly saved.
+Generated journal records snapshot these IDs and their `participantNames`. The journal has no
+attendance editor: person-hours multiply lesson duration in 40-minute academic hours by all
+distinct pupils in that lesson's roster, irrespective of attendance. Legacy `presentStudentIds`,
+`attendanceLessonHours` and `attendanceRecordedAt` no longer affect calculations.
+`journalLessonRoster` uses the explicit subgroup from the exact linked schedule row ahead of
+stale journal snapshots, for cells, totals and the printed roster. It never substitutes a different
+lesson of the same group. Without an explicit schedule subgroup it falls back to the journal
+snapshot, then the individual pupil/group membership. A missing/empty roster is reported, never
+counted as a pupil. Future lessons show their planned roster but do not contribute person-hours yet.
+Regenerating a journal always copies the applicable schedule version's roster and removes obsolete
+attendance fields from those regenerated records, preserving grades and record IDs. This also avoids
+the server's legacy attendance-subset check rejecting a smaller subgroup. Archived schedule rows
+retain their own subgroups and effective dates. Rendering itself never writes records to the server.
 
 Teachers receive minimal identity data for pupils in their assigned groups, not those pupils' other
 enrollments. The save RPC rejects unrelated participant IDs, duplicates and attendance outside the roster.
