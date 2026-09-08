@@ -7,6 +7,7 @@ The website uses Supabase Auth for password verification and checked PostgreSQL 
 1. Open **Supabase Dashboard → SQL Editor**.
 2. Run the complete `supabase/schema.sql` file.
 3. Run `supabase/lesson_members.sql` after the base schema (also after rerunning it). This preserves group pupil visibility and server validation of lesson rosters and attendance.
+   For an existing deployment, also run `supabase/conflict_response.sql`: version conflicts must return `PT409`, not `40001`, which older PostgREST versions retry indefinitely.
 4. Confirm that `get_school_context` and `save_school_context` appear under **Database → Functions**.
 5. Confirm that direct access policies for `school_state` are absent.
 

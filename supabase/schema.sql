@@ -132,7 +132,7 @@ begin
   select * into state_row from public.school_state order by updated_at desc limit 1 for update;
   if state_row.id is null then raise exception 'School state is not initialized' using errcode = '55000'; end if;
   if expected_updated_at is not null and state_row.updated_at <> expected_updated_at then
-    raise exception 'School state was changed by another user' using errcode = '40001';
+    raise exception 'School state was changed by another user' using errcode = 'PT409';
   end if;
 
   clean_payload := public.strip_school_secrets(new_payload);

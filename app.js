@@ -9,6 +9,7 @@ let secureCloudMode = false;
 let cloudSaveTimer = null;
 let cloudSaveInFlight = false;
 let cloudSaveQueued = false;
+let profileLoadError = null;
 let currentProfile = null;
 let modalReturnFocus = null;
 
@@ -611,6 +612,7 @@ async function loadCurrentProfile(userId) {
     .select("id, username, display_name, role, is_admin")
     .eq("id", userId)
     .single();
+  profileLoadError = error;
   if (error || !data) {
     console.warn("Supabase profile load failed", error?.message || "profile not found");
     return null;
@@ -644,7 +646,7 @@ async function flushCloudSave() {
       if (error) {
         console.warn("Secure Supabase state save failed", error.message);
         setSyncStatus("Не удалось сохранить", "error");
-        if (error.code === "40001") {
+        if (["PT409", "40001"].includes(error.code)) {
           alert("Данные уже изменены другим сотрудником. Загружена актуальная версия; повторите последнее действие.");
           await loadCloudState();
           render();
@@ -764,7 +766,7 @@ function importSchoolData(event) {
 
 async function login(event) {
   event.preventDefault();
-  const username = document.querySelector("#loginUsername").value.trim();
+  const username = normalizeEmployeeUsername(document.querySelector("#loginUsername").value);
   const password = document.querySelector("#loginPassword").value;
   const submitButton = event.submitter || event.target.querySelector('button[type="submit"]');
   submitButton.disabled = true;
@@ -788,10 +790,19 @@ async function login(event) {
   }
 
   currentProfile = await loadCurrentProfile(authData.user.id);
-  if (!currentProfile || currentProfile.username !== username || !await loadCloudState()) {
-    await supabaseClient.auth.signOut();
+  if (!currentProfile || normalizeEmployeeUsername(currentProfile.username) !== username) {
+    await supabaseClient.auth.signOut({ scope: "local" });
     currentProfile = null;
-    setLoginStatus("Профиль сотрудника не настроен. Обратитесь к администратору.", "error");
+    setLoginStatus(profileLoadError && profileLoadError.code !== "PGRST116"
+      ? "Не удалось загрузить профиль: сервер временно недоступен. Повторите вход чуть позже."
+      : "Профиль сотрудника не настроен. Обратитесь к администратору.", "error");
+    submitButton.disabled = false;
+    return;
+  }
+  if (!await loadCloudState()) {
+    await supabaseClient.auth.signOut({ scope: "local" });
+    currentProfile = null;
+    setLoginStatus("Не удалось загрузить школьную базу. Сервер временно недоступен; повторите вход чуть позже.", "error");
     submitButton.disabled = false;
     return;
   }
