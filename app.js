@@ -1153,15 +1153,15 @@ function journalLessonRoster(record) {
   const participantIds = SchoolModel.memberIds(snapshot);
   const planned = !record.date || record.date > todayISO();
   const participantNames = Object.fromEntries(participantIds.map(id => [id, snapshot.participantNames[id] || record.participantNames?.[id] || 'Ученик не загружен']));
-  const personHours = planned ? null : SchoolModel.personHours({...record, participantIds});
+  // Monthly allocation includes future lessons; "planned" is only a display marker.
+  const personHours = SchoolModel.personHours({...record, participantIds});
   return {participantIds, participantNames, personHours, planned,
     participantKind: snapshot.participantKind === 'group' || state.groups.some(g => g.id === record.studentId) ? 'group' : 'student'};
 }
 
 function journalRosterLabel(roster) {
   if (!roster.participantIds.length) return 'Нет состава';
-  if (roster.planned) return `План · ${roster.participantIds.length} уч.`;
-  return `${roster.participantIds.length} уч. · ${formatNumber(roster.personHours)} чел.-ч.`;
+  return `${roster.planned ? 'План · ' : ''}${roster.participantIds.length} уч. · ${formatNumber(roster.personHours)} чел.-ч.`;
 }
 
 function openLessonMembers(id) {
@@ -2277,7 +2277,7 @@ function renderJournal() {
           ${head}
           <th class="summary-cell">Пед.</th>
           <th class="summary-cell">Конц.</th>
-          <th class="summary-cell">Чел.-ч.</th>
+          <th class="summary-cell" title="За весь выбранный месяц, включая будущие занятия">Чел.-ч.</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
@@ -2287,7 +2287,7 @@ function renderJournal() {
       ${renderJournalTotal("ДОП", totals.dop)}
       ${renderJournalTotal("Итого", totals.total)}
     </div>
-    <p class="muted-note person-hours-note">Человеко-часы = длительность занятия в учебных часах (40 минут) × число учеников, независимо от явки. Нажмите на число учеников под датой, чтобы раскрыть «Исправить состав»: изменение действует только на выбранную дату, включая прошлые занятия. Оценки ставятся отдельно в строках учеников. Пед. и КЦ считаются один раз за групповое занятие. Будущие занятия («План») в человеко-часы не входят.</p>
+    <p class="muted-note person-hours-note">Человеко-часы считаются за весь выбранный месяц, включая будущие занятия («План»): длительность занятия в учебных часах (40 минут) × число учеников, независимо от явки. Неучебные дни не учитываются. Нажмите на число учеников под датой, чтобы раскрыть «Исправить состав»: изменение действует только на выбранную дату, включая прошлые занятия. Оценки ставятся отдельно в строках учеников. Пед. и КЦ считаются один раз за групповое занятие.</p>
     ${renderLessonRosterPrintReport(records)}
   `;
 }
@@ -2317,7 +2317,7 @@ function renderJournalEntry(entry, dates) {
 }
 
 function renderPersonHoursTotal(records, memberId) {
-  const eligible = records.filter(r => r.date <= todayISO());
+  const eligible = records.filter(countableRecord);
   const known = eligible.map(r => {
     const roster = journalLessonRoster(r);
     return memberId ? roster.participantIds.includes(memberId) ? SchoolModel.lessonHours(r) : 0 : roster.personHours;
@@ -2327,11 +2327,11 @@ function renderPersonHoursTotal(records, memberId) {
 }
 
 function renderLessonRosterPrintReport(records) {
-  const groups = records.map(record => ({record, roster: journalLessonRoster(record)}))
+  const groups = records.filter(countableRecord).map(record => ({record, roster: journalLessonRoster(record)}))
     .filter(({roster}) => roster.participantKind === 'group')
     .sort((a,b) => a.record.date.localeCompare(b.record.date) || a.record.time.localeCompare(b.record.time));
   if (!groups.length) return '';
-  return `<section class="print-roster-report"><h3>Состав групповых занятий и оценки учеников</h3><p>Человеко-часы рассчитаны по составу каждого занятия, с учётом исправлений на дату, независимо от явки. После фамилии указана индивидуальная оценка; «—» — оценки нет.</p><table><thead><tr><th>Дата · время</th><th>Группа · предмет · класс</th><th>Ученики · оценки</th><th>Чел.-ч.</th></tr></thead><tbody>${groups.map(({record: r, roster}) => `<tr><td>${formatDate(r.date)}<br>${escapeHtml(r.time)}${r.rosterOverride === true ? '<br>Состав исправлен' : ''}</td><td>${escapeHtml(r.studentName || studentName(r.studentId))}<br>${escapeHtml(SchoolModel.subjectLabel(r))} · ${escapeHtml(r.className || '')}${r.grade ? `<br>Старая общая оценка: ${escapeHtml(r.grade)}` : ''}</td><td>${roster.participantIds.map(id => `${escapeHtml(roster.participantNames[id])}: ${escapeHtml(r.studentGrades?.[id] || '—')}`).join('; ') || 'Нет состава'}</td><td>${roster.planned ? 'План' : roster.personHours === null ? 'Нет состава' : formatNumber(roster.personHours)}</td></tr>`).join('')}</tbody></table></section>`;
+  return `<section class="print-roster-report"><h3>Состав групповых занятий и оценки учеников</h3><p>Человеко-часы рассчитаны за весь выбранный месяц, включая будущие занятия («План»), по составу каждого занятия, с учётом исправлений на дату, независимо от явки. Неучебные дни не учитываются. После фамилии указана индивидуальная оценка; «—» — оценки нет.</p><table><thead><tr><th>Дата · время</th><th>Группа · предмет · класс</th><th>Ученики · оценки</th><th>Чел.-ч.</th></tr></thead><tbody>${groups.map(({record: r, roster}) => `<tr><td>${formatDate(r.date)}<br>${escapeHtml(r.time)}${roster.planned ? '<br>План' : ''}${r.rosterOverride === true ? '<br>Состав исправлен' : ''}</td><td>${escapeHtml(r.studentName || studentName(r.studentId))}<br>${escapeHtml(SchoolModel.subjectLabel(r))} · ${escapeHtml(r.className || '')}${r.grade ? `<br>Старая общая оценка: ${escapeHtml(r.grade)}` : ''}</td><td>${roster.participantIds.map(id => `${escapeHtml(roster.participantNames[id])}: ${escapeHtml(r.studentGrades?.[id] || '—')}`).join('; ') || 'Нет состава'}</td><td>${roster.personHours === null ? 'Нет состава' : formatNumber(roster.personHours)}</td></tr>`).join('')}</tbody></table></section>`;
 }
 
 function journalTotals(records) {
@@ -2347,11 +2347,9 @@ function journalTotals(records) {
     target.kc += kc;
     total.ped += ped;
     total.kc += kc;
-    if (record.date <= todayISO()) {
-      const person = journalLessonRoster(record).personHours;
-      if (person === null) { target.pending++; total.pending++; }
-      else { target.person += person; total.person += person; }
-    }
+    const person = journalLessonRoster(record).personHours;
+    if (person === null) { target.pending++; total.pending++; }
+    else { target.person += person; total.person += person; }
   });
   return { dpp, dop, total };
 }
@@ -2363,7 +2361,7 @@ function renderJournalTotal(label, hours) {
       <span>Пед.: ${formatNumber(hours.ped)}</span>
       <span>Кц: ${formatNumber(hours.kc)}</span>
       <b>Всего: ${formatNumber(hours.ped + hours.kc)}</b>
-      <span>Чел.-ч.: ${formatNumber(hours.person || 0)}${hours.pending ? ` (нет состава: ${hours.pending})` : ''}</span>
+      <span>Чел.-ч. за месяц: ${formatNumber(hours.person || 0)}${hours.pending ? ` (нет состава: ${hours.pending})` : ''}</span>
     </div>
   `;
 }
@@ -2380,7 +2378,7 @@ function renderJournalCell(entry, date) {
     const roster = journalLessonRoster(record);
     const rosterLabel = journalRosterLabel(roster);
     if (roster.participantKind === 'group' && !entry.memberId) {
-      const compactLabel = roster.planned || !roster.participantIds.length ? rosterLabel : `${roster.participantIds.length} уч.`;
+      const compactLabel = !roster.participantIds.length ? rosterLabel : `${roster.planned ? 'План · ' : ''}${roster.participantIds.length} уч.`;
       const correctionNote = record.rosterOverride === true ? 'Исправлено на дату' : '';
       const legacyGrade = record.grade ? `Старая общая оценка: ${record.grade}` : '';
       const printDetails = [details, rosterLabel, correctionNote, legacyGrade].filter(Boolean).map(escapeHtml).join('<br>');

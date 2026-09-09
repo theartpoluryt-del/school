@@ -68,6 +68,8 @@ test('old and new schedules retain effective periods, grade IDs and independent 
   assert.equal(JSON.stringify(future.participantIds),'["c"]');
   assert(c.state.records.some(r=>r.id==='other'));
   assert.equal(c.journalLessonRoster(past).personHours,2);
+  assert.equal(c.journalLessonRoster(future).personHours,1);
+  assert.equal(c.journalTotals(c.state.records.filter(r=>r.employeeId==='t')).total.person,3);
   c.todayISO=()=> '2026-09-30';
   assert.equal(c.journalLessonRoster(future).personHours,1);
   const ids=c.state.records.map(r=>r.id).join();
@@ -153,9 +155,9 @@ test('legacy individual lessons count full person-hours even if marked absent be
   }
 });
 
-test('four group lessons yield 80 person-hours regardless of old presence arrays',()=>{
+test('four group lessons yield 80 monthly person-hours from the start of the month, regardless of attendance',()=>{
   const c=fixture();
-  c.todayISO=()=> '2026-09-30';
+  c.todayISO=()=> '2026-09-01';
   const ids=Array.from({length:20},(_,i)=>'p'+i);
   c.state.students=ids.map(id=>({id,name:id}));
   c.state.groups=[{id:'g',studentIds:ids}];
@@ -170,21 +172,73 @@ test('four group lessons yield 80 person-hours regardless of old presence arrays
   assert.equal(totals.total.ped,4);
   assert.equal(totals.total.pending,0);
   assert.equal((c.renderLessonRosterPrintReport(records).match(/<td>20<\/td>/g)||[]).length,4);
+  assert.equal(c.renderPersonHoursTotal(records,'p0'),'4');
+  for (const today of ['2026-09-08','2026-09-30']) {
+    c.todayISO=()=>today;
+    assert.equal(c.renderPersonHoursTotal(records),'80');
+    assert.equal(c.journalTotals(records).total.person,80);
+  }
 });
 
-test('future lessons display their subgroup but enter person-hours only on their date',()=>{
+test('future lessons immediately count in row and monthly totals and print while remaining planned',()=>{
   const c=fixture();
   const r={id:'r',employeeId:'t',studentId:'g',participantKind:'group',date:'2026-09-21',time:'10:00-10:40',
-    participantIds:['a','b'],participantNames:{a:'A',b:'B'},status:'conducted'};
+    participantIds:['a','b'],participantNames:{a:'A',b:'B'},status:'planned'};
+  const before=JSON.stringify(r);
   const html=c.renderJournalCell({name:'Group',records:[r]},r.date);
-  assert(html.includes('План · 2 уч.'));
+  assert(html.includes('План · 2 уч. · 2 чел.-ч.'));
+  assert(/<summary[^>]*>План · 2 уч\.<\/summary>/.test(html));
   assert(c.renderJournalEntry({name:'Group',records:[r]},[r.date]).includes('Оценка A'));
-  assert.equal(c.renderPersonHoursTotal([r]),'0');
-  assert.equal(c.journalTotals([r]).total.person,0);
-  assert(c.renderLessonRosterPrintReport([r]).includes('A: —; B: —</td><td>План</td>'));
+  assert.equal(c.renderPersonHoursTotal([r]),'2');
+  assert.equal(c.renderPersonHoursTotal([r],'a'),'1');
+  assert.equal(c.journalTotals([r]).total.person,2);
+  const print=c.renderLessonRosterPrintReport([r]);
+  assert(print.includes('за весь выбранный месяц, включая будущие занятия'));
+  assert(print.includes('A: —; B: —</td><td>2</td>'));
+  assert(print.includes('10:00-10:40<br>План</td>'));
   c.todayISO=()=>r.date;
   assert.equal(c.journalLessonRoster(r).personHours,2);
   assert.equal(c.renderPersonHoursTotal([r]),'2');
+  assert.equal(JSON.stringify(r),before);
+});
+
+test('monthly generation uses all four or five calendar occurrences, not a four-week estimate or as-of cutoff',()=>{
+  for (const [month,weekday,count] of [['2026-09',1,4],['2026-10',4,5]]) {
+    const c=fixture();
+    load('monthDates',c);
+    c.todayISO=()=>month+'-01';
+    const ids=Array.from({length:20},(_,i)=>'p'+i);
+    c.state.groups=[{id:'g',studentIds:ids}];
+    c.state.schedule=[{id:'row',employeeId:'t',studentId:'g',participantKind:'group',weekday,
+      effectiveFrom:month+'-01',time:'10:00-10:40',pedHours:1,kcHours:0,educationForm:'ДОП'}];
+    c.refreshJournalMonth(month,month+'-01','t');
+    assert.equal(c.state.records.length,count);
+    assert.equal(c.journalTotals(c.state.records).total.person,count*20);
+    assert.equal(c.renderPersonHoursTotal(c.state.records),String(count*20));
+    const idsBefore=c.state.records.map(r=>r.id).join();
+    c.refreshJournalMonth(month,month+'-25','t');
+    assert.equal(c.state.records.map(r=>r.id).join(),idsBefore);
+    assert.equal(c.journalTotals(c.state.records).total.person,count*20);
+  }
+});
+
+test('whole-month totals and print exclude non-teaching dates and flag missing future rosters',()=>{
+  const c=fixture();
+  c.todayISO=()=> '2026-09-01';
+  c.isHoliday=date=>date==='2026-09-14';
+  const records=['2026-09-07','2026-09-14','2026-09-21','2026-09-28'].map(date=>({
+    id:date,employeeId:'t',studentId:'g',date,participantKind:'group',time:'10:00-10:40',
+    participantIds:['a','b'],participantNames:{a:'A',b:'B'},pedHours:1,kcHours:0,status:'planned'
+  }));
+  records[2].status='holiday';
+  records[3].participantIds=[];
+  assert.equal(c.renderPersonHoursTotal(records),'2 <small>(нет состава: 1)</small>');
+  assert.equal(c.journalTotals(records).total.person,2);
+  assert.equal(c.journalTotals(records).total.pending,1);
+  const print=c.renderLessonRosterPrintReport(records);
+  assert(!print.includes('2026-09-14'));
+  assert(!print.includes('2026-09-21'));
+  assert(print.includes('Нет состава</td>'));
 });
 
 test('missing and explicitly empty rosters are not replaced by the whole group',()=>{
