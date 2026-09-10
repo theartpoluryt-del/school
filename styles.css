@@ -1738,17 +1738,10 @@ th {
 
 @media print {
   .journal-roster-details, .journal-roster-edit, .journal-roster-label { display: none; }
-  .print-roster-report { display: block; break-before: page; font-size: 10px; }
-  .print-roster-report table { width: 100%; border-collapse: collapse; }
-  .print-roster-report th:nth-child(1) { width: 12%; }
-  .print-roster-report th:nth-child(2) { width: 28%; }
-  .print-roster-report th:nth-child(3) { width: 50%; }
-  .print-roster-report th:nth-child(4) { width: 10%; }
-  .print-roster-report th, .print-roster-report td { border: 1px solid #999; padding: 5px; text-align: left; font-size: 10px; }
-  .print-roster-report tr { break-inside: avoid; }
+  /* The journal form contains grades/dots, not lesson accounting annotations. */
+  .print-lesson-details, .print-roster-report, .person-hours-note { display: none; }
   .journal-lesson { display: block; }
   .panel-toolbar label { display: none; }
-  .person-hours-note { font-size: 9px; }
   @page {
     size: A4 landscape;
     margin: 8mm;
@@ -1890,14 +1883,16 @@ th {
     line-height: 1;
   }
 
-  .print-lesson-details {
-    display: block;
-    margin-top: 1px;
+  .grade-control {
+    min-width: 0;
+    min-height: 12px;
     color: #000;
-    font-size: 6px;
-    line-height: 1.05;
-    font-weight: 500;
-    overflow-wrap: anywhere;
+    font-size: 10px;
+    line-height: 1.1;
+  }
+
+  .grade-control .grade-select {
+    display: none;
   }
 
   .cell-stack {

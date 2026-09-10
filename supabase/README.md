@@ -26,7 +26,8 @@ Otherwise it uses the explicit subgroup from the exact linked schedule row ahead
 stale journal snapshots, for cells, totals and the printed roster. It never substitutes a different
 lesson of the same group. Without an explicit schedule subgroup it falls back to the journal
 snapshot, then the individual pupil/group membership. A missing/empty roster is reported, never
-counted as a pupil. Future lessons show their planned roster but do not contribute person-hours yet.
+counted as a pupil. Person-hours include all lessons in the selected month, including future lessons;
+the planned label is informational only. Non-teaching dates are excluded.
 Regenerating a journal preserves dated corrections; other records copy the applicable schedule
 version's roster. It removes obsolete attendance fields while preserving grades and record IDs. This avoids
 the server's legacy attendance-subset check rejecting a smaller subgroup. Archived schedule rows
@@ -40,6 +41,10 @@ teacher-scoped pupil access and override types. Grades may be retained for the p
 available for this group, including when grading and correction are saved together; unrelated pupil
 grades are rejected. `tests/journal-corrections.sql` verifies these
 rules and an actual teacher RPC save/reload in a transaction ending with `ROLLBACK`.
+
+The printed journal date cells show only a grade or a dot. Per-lesson hours, roster labels,
+correction notes and the detailed roster appendix are not printed. Subject/instrument headers,
+pupil names/classes and the monthly summary columns remain in the form.
 
 Teachers receive minimal identity data for pupils in their assigned groups, not those pupils' other
 enrollments. The save RPC rejects unrelated participant IDs, duplicates and attendance outside the roster.
