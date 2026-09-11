@@ -2304,11 +2304,22 @@ function journalPupilEntries(entry) {
   return [...pupils.values()].sort((a,b) => a.name.localeCompare(b.name, 'ru'));
 }
 
+function compactJournalClass(value) {
+  const label = String(value || '').trim();
+  const classMatch = label.match(/(\d+)\s*(?:класс|кл\.?)/i);
+  if (!classMatch) return label;
+  const termMatch = label.match(/(\d+)\s*[-‑–—]?\s*лет/i);
+  return termMatch ? `${classMatch[1]}/${termMatch[1]}` : classMatch[1];
+}
+
 function renderJournalEntry(entry, dates) {
   const group = !entry.memberId && entry.records.some(record => journalLessonRoster(record).participantKind === 'group');
   const countable = entry.records.filter(countableRecord);
+  const fullClassName = String(entry.className || '').trim();
+  const className = compactJournalClass(fullClassName);
+  const classTitle = fullClassName && className !== fullClassName ? ` title="${escapeAttr(fullClassName)}"` : '';
   return `<tr class="${group ? 'journal-group-row' : entry.memberId ? 'journal-pupil-row' : ''}">
-    <td class="student-cell">${escapeHtml(entry.name)}</td><td class="class-cell">${escapeHtml(entry.className || '')}</td>
+    <td class="student-cell">${escapeHtml(entry.name)}</td><td class="class-cell"${classTitle}>${escapeHtml(className)}</td>
     ${dates.map(date => renderJournalCell(entry, date)).join('')}
     <td class="summary-cell">${entry.memberId ? '—' : formatNumber(sum(countable, 'pedHours'))}</td>
     <td class="summary-cell">${entry.memberId ? '—' : formatNumber(sum(countable, 'kcHours'))}</td>
@@ -2395,11 +2406,10 @@ function renderJournalCell(entry, date) {
         <small class="print-lesson-details">${printDetails}</small></div>`;
     }
     const grade = String(entry.memberId ? record.studentGrades?.[entry.memberId] ?? '' : record.grade ?? '');
-    const rosterInfo = entry.memberId ? '' : `<span class="journal-roster-label">${escapeHtml(rosterLabel)}</span>`;
     return `
       <div class="journal-lesson"><span class="grade-control"><span class="grade-value" aria-hidden="true">${escapeHtml(grade || '•')}</span><select class="grade-select" aria-label="Оценка ${escapeAttr(entry.name)} за ${escapeAttr(date)}" title="${escapeHtml(record.time)} ${escapeHtml(SchoolModel.subjectLabel(record))} · ${formatNumber(record.pedHours)} пед. / ${formatNumber(record.kcHours)} конц." data-grade-record="${escapeAttr(record.id)}" ${entry.memberId ? `data-grade-student="${escapeAttr(entry.memberId)}"` : ''}>
         ${gradeOptions(grade)}
-      </select></span>${rosterInfo}<small class="print-lesson-details">${escapeHtml(details)}${entry.memberId ? '' : `<br>${escapeHtml(rosterLabel)}`}</small></div>
+      </select></span><small class="print-lesson-details">${escapeHtml(details)}</small></div>
     `;
   }).join("");
 

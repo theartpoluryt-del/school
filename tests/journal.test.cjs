@@ -28,7 +28,7 @@ function fixture() {
     'journalRosterLabel','renderPersonHoursTotal','renderLessonRosterPrintReport','journalTotals',
     'renderJournalTotal','countableRecord','countableStatus','saveLessonMembers','gradeValues','clearLegacyAttendance',
     'journalRosterCandidates','openJournalRoster','saveJournalRoster','resetJournalRoster','setGrade','lessonMemberCheckboxes',
-    'journalPupilEntries','renderJournalEntry','sum'].forEach(n=>load(n,ctx));
+    'journalPupilEntries','compactJournalClass','renderJournalEntry','sum'].forEach(n=>load(n,ctx));
   return ctx;
 }
 function subgroupFixture() {
@@ -147,12 +147,23 @@ test('legacy individual lessons count full person-hours even if marked absent be
     assert.equal(c.renderPersonHoursTotal([r]),'0.5');
     assert.equal(c.journalTotals([r]).total.person,0.5);
     const html=c.renderJournalCell({name:'A',records:[r]},r.date);
-    assert(html.includes('1 уч. · 0.5 чел.-ч.'));
+    assert(!html.includes('1 уч.'));
+    assert(!html.includes('чел.-ч.'));
     assert(!html.includes('Не отмечено'));
     assert(!html.includes('<button'));
     assert(html.includes('aria-hidden="true">5</span>'));
     assert.equal(JSON.stringify(r),before);
   }
+});
+
+test('journal class labels use compact class and study-term notation',()=>{
+  const c=fixture();
+  assert.equal(c.compactJournalClass('1 класс · 5-летний срок обучения'),'1/5');
+  assert.equal(c.compactJournalClass('2 класс · 8-летний срок обучения'),'2/8');
+  assert.equal(c.compactJournalClass('6 кл'),'6');
+  assert.equal(c.compactJournalClass('Подготовительный класс'),'Подготовительный класс');
+  const html=c.renderJournalEntry({name:'A',className:'1 класс · 5-летний срок обучения',records:[]},[]);
+  assert(html.includes('<td class="class-cell" title="1 класс · 5-летний срок обучения">1/5</td>'));
 });
 
 test('four group lessons yield 80 monthly person-hours from the start of the month, regardless of attendance',()=>{

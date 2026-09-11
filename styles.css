@@ -1592,7 +1592,8 @@ th {
 }
 
 .journal-table .class-cell {
-  min-width: 70px;
+  min-width: 42px;
+  white-space: nowrap;
 }
 
 .journal-table .date-cell {
