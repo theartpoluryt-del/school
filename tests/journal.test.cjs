@@ -86,7 +86,8 @@ test('two out of thirteen on the 2nd and three on the 3rd appear immediately wit
   assert.equal(c.journalLessonRoster(wed).personHours,2);
   assert.equal(c.journalLessonRoster(thu).personHours,3);
   const html=c.renderJournalEntry({name:'Group',records:[wed]},[wed.date]);
-  assert(html.includes('2 уч. · 2 чел.-ч.'));
+  assert(/<summary[^>]*>2 уч\.<\/summary>/.test(html));
+  assert(!html.includes('чел.-ч.'));
   assert(html.includes('Ученик 01'));
   assert(html.includes('Ученик 02'));
   assert(!html.includes('Ученик 03'));
@@ -197,8 +198,9 @@ test('future lessons immediately count in row and monthly totals and print while
     participantIds:['a','b'],participantNames:{a:'A',b:'B'},status:'planned'};
   const before=JSON.stringify(r);
   const html=c.renderJournalCell({name:'Group',records:[r]},r.date);
-  assert(html.includes('План · 2 уч. · 2 чел.-ч.'));
-  assert(/<summary[^>]*>План · 2 уч\.<\/summary>/.test(html));
+  assert(!html.includes('План'));
+  assert(!html.includes('чел.-ч.'));
+  assert(/<summary[^>]*>2 уч\.<\/summary>/.test(html));
   assert(c.renderJournalEntry({name:'Group',records:[r]},[r.date]).includes('Оценка A'));
   assert.equal(c.renderPersonHoursTotal([r]),'2');
   assert.equal(c.renderPersonHoursTotal([r],'a'),'1');
@@ -206,7 +208,8 @@ test('future lessons immediately count in row and monthly totals and print while
   const print=c.renderLessonRosterPrintReport([r]);
   assert(print.includes('за весь выбранный месяц, включая будущие занятия'));
   assert(print.includes('A: —; B: —</td><td>2</td>'));
-  assert(print.includes('10:00-10:40<br>План</td>'));
+  assert(print.includes('10:00-10:40</td>'));
+  assert(!print.includes('План'));
   c.todayISO=()=>r.date;
   assert.equal(c.journalLessonRoster(r).personHours,2);
   assert.equal(c.renderPersonHoursTotal([r]),'2');
@@ -320,7 +323,7 @@ test('past lesson roster can be corrected independently, survives regeneration a
   assert.equal(corrected.rosterOverride,true);
   assert.equal(reloaded.journalLessonRoster(corrected).personHours,2);
   assert.equal(corrected.grade,'5');
-  assert(reloaded.renderLessonRosterPrintReport([corrected]).includes('Состав исправлен'));
+  assert(!reloaded.renderLessonRosterPrintReport([corrected]).includes('Состав исправлен'));
   reloaded.resetJournalRoster(corrected.id);
   assert.equal(corrected.rosterOverride,undefined);
   assert.equal(reloaded.journalLessonRoster(corrected).personHours,13);
@@ -378,9 +381,11 @@ test('compact group cells keep correction controls collapsed and all metadata av
   assert(html.includes('<details class="journal-roster-details">'));
   assert(!/<details[^>]*\bopen\b/.test(html));
   assert(/<summary[^>]*>2 уч\.<\/summary>/.test(html));
-  assert(html.includes('aria-label="Состав Group за 2026-09-02: 2 уч. · 2 чел.-ч."'));
+  assert(html.includes('aria-label="Состав Group за 2026-09-02: 2 уч."'));
   assert(/<div class="journal-roster-options">[\s\S]*data-action="journalRoster:record-wed"[\s\S]*Старая общая оценка: 5[\s\S]*<\/details>/.test(html));
-  assert(/<\/details>\s*<small class="print-lesson-details">[^<]*<br>2 уч\. · 2 чел\.-ч\.<br>Исправлено на дату<br>Старая общая оценка: 5<\/small>/.test(html));
+  assert(!html.includes('2 уч. · 2 чел.-ч.'));
+  assert(!html.includes('Исправлено на дату'));
+  assert(/<\/details>\s*<small class="print-lesson-details">[^<]*<br>Старая общая оценка: 5<\/small>/.test(html));
   assert.equal((html.match(/data-grade-student=/g)||[]).length,2);
   assert(html.includes('value="5" selected'));
   assert(html.includes('value="4" selected'));

@@ -1153,7 +1153,6 @@ function journalLessonRoster(record) {
   const participantIds = SchoolModel.memberIds(snapshot);
   const planned = !record.date || record.date > todayISO();
   const participantNames = Object.fromEntries(participantIds.map(id => [id, snapshot.participantNames[id] || record.participantNames?.[id] || 'Ученик не загружен']));
-  // Monthly allocation includes future lessons; "planned" is only a display marker.
   const personHours = SchoolModel.personHours({...record, participantIds});
   return {participantIds, participantNames, personHours, planned,
     participantKind: snapshot.participantKind === 'group' || state.groups.some(g => g.id === record.studentId) ? 'group' : 'student'};
@@ -1161,7 +1160,7 @@ function journalLessonRoster(record) {
 
 function journalRosterLabel(roster) {
   if (!roster.participantIds.length) return 'Нет состава';
-  return `${roster.planned ? 'План · ' : ''}${roster.participantIds.length} уч. · ${formatNumber(roster.personHours)} чел.-ч.`;
+  return `${roster.participantIds.length} уч.`;
 }
 
 function openLessonMembers(id) {
@@ -2287,7 +2286,7 @@ function renderJournal() {
       ${renderJournalTotal("ДОП", totals.dop)}
       ${renderJournalTotal("Итого", totals.total)}
     </div>
-    <p class="muted-note person-hours-note">Человеко-часы считаются за весь выбранный месяц, включая будущие занятия («План»): длительность занятия в учебных часах (40 минут) × число учеников, независимо от явки. Неучебные дни не учитываются. Нажмите на число учеников под датой, чтобы раскрыть «Исправить состав»: изменение действует только на выбранную дату, включая прошлые занятия. Оценки ставятся отдельно в строках учеников. Пед. и КЦ считаются один раз за групповое занятие.</p>
+    <p class="muted-note person-hours-note">Человеко-часы считаются за весь выбранный месяц, включая будущие занятия: длительность занятия в учебных часах (40 минут) × число учеников, независимо от явки. Неучебные дни не учитываются. Нажмите на число учеников под датой, чтобы раскрыть «Исправить состав»: изменение действует только на выбранную дату, включая прошлые занятия. Оценки ставятся отдельно в строках учеников. Пед. и КЦ считаются один раз за групповое занятие.</p>
     ${renderLessonRosterPrintReport(records)}
   `;
 }
@@ -2342,7 +2341,7 @@ function renderLessonRosterPrintReport(records) {
     .filter(({roster}) => roster.participantKind === 'group')
     .sort((a,b) => a.record.date.localeCompare(b.record.date) || a.record.time.localeCompare(b.record.time));
   if (!groups.length) return '';
-  return `<section class="print-roster-report"><h3>Состав групповых занятий и оценки учеников</h3><p>Человеко-часы рассчитаны за весь выбранный месяц, включая будущие занятия («План»), по составу каждого занятия, с учётом исправлений на дату, независимо от явки. Неучебные дни не учитываются. После фамилии указана индивидуальная оценка; «—» — оценки нет.</p><table><thead><tr><th>Дата · время</th><th>Группа · предмет · класс</th><th>Ученики · оценки</th><th>Чел.-ч.</th></tr></thead><tbody>${groups.map(({record: r, roster}) => `<tr><td>${formatDate(r.date)}<br>${escapeHtml(r.time)}${roster.planned ? '<br>План' : ''}${r.rosterOverride === true ? '<br>Состав исправлен' : ''}</td><td>${escapeHtml(r.studentName || studentName(r.studentId))}<br>${escapeHtml(SchoolModel.subjectLabel(r))} · ${escapeHtml(r.className || '')}${r.grade ? `<br>Старая общая оценка: ${escapeHtml(r.grade)}` : ''}</td><td>${roster.participantIds.map(id => `${escapeHtml(roster.participantNames[id])}: ${escapeHtml(r.studentGrades?.[id] || '—')}`).join('; ') || 'Нет состава'}</td><td>${roster.personHours === null ? 'Нет состава' : formatNumber(roster.personHours)}</td></tr>`).join('')}</tbody></table></section>`;
+  return `<section class="print-roster-report"><h3>Состав групповых занятий и оценки учеников</h3><p>Человеко-часы рассчитаны за весь выбранный месяц, включая будущие занятия, по составу каждого занятия, с учётом исправлений на дату, независимо от явки. Неучебные дни не учитываются. После фамилии указана индивидуальная оценка; «—» — оценки нет.</p><table><thead><tr><th>Дата · время</th><th>Группа · предмет · класс</th><th>Ученики · оценки</th><th>Чел.-ч.</th></tr></thead><tbody>${groups.map(({record: r, roster}) => `<tr><td>${formatDate(r.date)}<br>${escapeHtml(r.time)}</td><td>${escapeHtml(r.studentName || studentName(r.studentId))}<br>${escapeHtml(SchoolModel.subjectLabel(r))} · ${escapeHtml(r.className || '')}${r.grade ? `<br>Старая общая оценка: ${escapeHtml(r.grade)}` : ''}</td><td>${roster.participantIds.map(id => `${escapeHtml(roster.participantNames[id])}: ${escapeHtml(r.studentGrades?.[id] || '—')}`).join('; ') || 'Нет состава'}</td><td>${roster.personHours === null ? 'Нет состава' : formatNumber(roster.personHours)}</td></tr>`).join('')}</tbody></table></section>`;
 }
 
 function journalTotals(records) {
@@ -2389,17 +2388,13 @@ function renderJournalCell(entry, date) {
     const roster = journalLessonRoster(record);
     const rosterLabel = journalRosterLabel(roster);
     if (roster.participantKind === 'group' && !entry.memberId) {
-      const compactLabel = !roster.participantIds.length ? rosterLabel : `${roster.planned ? 'План · ' : ''}${roster.participantIds.length} уч.`;
-      const correctionNote = record.rosterOverride === true ? 'Исправлено на дату' : '';
       const legacyGrade = record.grade ? `Старая общая оценка: ${record.grade}` : '';
-      const printDetails = [details, rosterLabel, correctionNote, legacyGrade].filter(Boolean).map(escapeHtml).join('<br>');
+      const printDetails = [details, legacyGrade].filter(Boolean).map(escapeHtml).join('<br>');
       return `<div class="journal-lesson">
         <details class="journal-roster-details">
-          <summary aria-label="Состав ${escapeAttr(entry.name)} за ${escapeAttr(date)}: ${escapeAttr(rosterLabel)}" title="${escapeAttr([details, rosterLabel, correctionNote, 'Нажмите, чтобы исправить состав'].filter(Boolean).join(' · '))}">${escapeHtml(compactLabel)}</summary>
+          <summary aria-label="Состав ${escapeAttr(entry.name)} за ${escapeAttr(date)}: ${escapeAttr(rosterLabel)}" title="${escapeAttr([details, 'Нажмите, чтобы исправить состав'].filter(Boolean).join(' · '))}">${escapeHtml(rosterLabel)}</summary>
           <div class="journal-roster-options">
-            <span class="journal-roster-label">${escapeHtml(rosterLabel)}</span>
             <button type="button" class="journal-roster-edit" data-action="journalRoster:${escapeAttr(record.id)}" aria-label="Исправить состав ${escapeAttr(entry.name)} за ${escapeAttr(date)}">Исправить состав</button>
-            ${correctionNote ? `<small class="journal-correction-note">${escapeHtml(correctionNote)}</small>` : ''}
             ${legacyGrade ? `<small class="legacy-group-grade">${escapeHtml(legacyGrade)}</small>` : ''}
           </div>
         </details>
