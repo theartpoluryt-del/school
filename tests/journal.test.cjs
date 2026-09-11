@@ -13,10 +13,11 @@ function fixture() {
   let seq=0;
   const ctx=vm.createContext({
     state:{schedule:[],records:[],students:[],groups:[],activeEmployeeId:'t'},
+    educationForms:['ДПП','ДОП'],lessonTypes:['Специальность','Ансамбль'],dopSubjectName:'Музыкальные инструменты',
     todayISO:()=> '2026-09-15',
     monthDates:()=>['2026-09-14','2026-09-21'],
     parseISO:d=>new Date(d+'T12:00:00'),isHoliday:()=>false,createId:()=> 'id-'+(++seq),
-    studentName:()=> 'Test pupil',educationFormForParticipant:()=> 'ДПП',
+    studentName:()=> 'Test pupil',participantById:()=>null,educationFormForParticipant:()=> 'ДПП',
     SchoolModel:require('../school-model.js'),escapeHtml:String,escapeAttr:String,formatNumber:String,
     formatDate:String,normalizeEducationForm:form=>form || 'ДПП',
     checkedValues:form=>form.memberIds,closeModal(){},persistAndRender:()=>{ctx.saved=true;},
@@ -28,7 +29,7 @@ function fixture() {
     'journalRosterLabel','renderPersonHoursTotal','renderLessonRosterPrintReport','journalTotals',
     'renderJournalTotal','countableRecord','countableStatus','saveLessonMembers','gradeValues','clearLegacyAttendance',
     'journalRosterCandidates','openJournalRoster','saveJournalRoster','resetJournalRoster','setGrade','lessonMemberCheckboxes',
-    'journalPupilEntries','compactJournalClass','renderJournalEntry','sum'].forEach(n=>load(n,ctx));
+    'journalPupilEntries','compactJournalClass','compactJournalInstrument','renderJournalEntry','journalSections','compareJournalSubjects','sum'].forEach(n=>load(n,ctx));
   return ctx;
 }
 function subgroupFixture() {
@@ -165,6 +166,25 @@ test('journal class labels use compact class and study-term notation',()=>{
   assert.equal(c.compactJournalClass('Подготовительный класс'),'Подготовительный класс');
   const html=c.renderJournalEntry({name:'A',className:'1 класс · 5-летний срок обучения',records:[]},[]);
   assert(html.includes('<td class="class-cell" title="1 класс · 5-летний срок обучения">1/5</td>'));
+});
+
+test('duplicate pupil rows in one subject are disambiguated by a short instrument label',()=>{
+  const c=fixture();
+  const base={employeeId:'t',studentId:'pupil',studentName:'Данькова Анна',type:'Ансамбль',educationForm:'ДПП',date:'2026-09-02',status:'conducted'};
+  const records=[
+    {...base,id:'flute',instrument:'Флейта',className:'6 кл'},
+    {...base,id:'sax',instrument:'Саксофон',className:'3 кл'},
+    {...base,id:'other',studentId:'other',studentName:'Мансурова Линара',instrument:'Фортепиано',className:'2 кл'}
+  ];
+  const entries=c.journalSections(records)[0].subjects[0].entries;
+  const dankova=entries.filter(entry=>entry.studentId==='pupil');
+  assert.equal(dankova.length,2);
+  assert(dankova.every(entry=>entry.showInstrument));
+  assert.equal(entries.find(entry=>entry.studentId==='other').showInstrument,false);
+  const html=dankova.map(entry=>c.renderJournalEntry(entry,[])).join('');
+  assert(html.includes('Данькова Анна <small class="journal-instrument-short" title="Флейта">· фл.</small>'));
+  assert(html.includes('Данькова Анна <small class="journal-instrument-short" title="Саксофон">· сакс.</small>'));
+  assert(!c.renderJournalEntry(entries.find(entry=>entry.studentId==='other'),[]).includes('journal-instrument-short'));
 });
 
 test('four group lessons yield 80 monthly person-hours from the start of the month, regardless of attendance',()=>{

@@ -2311,14 +2311,29 @@ function compactJournalClass(value) {
   return termMatch ? `${classMatch[1]}/${termMatch[1]}` : classMatch[1];
 }
 
+function compactJournalInstrument(value) {
+  const instrument = String(value || '').trim();
+  const labels = {
+    'Фортепиано': 'ф-но', 'Скрипка': 'скр.', 'Виолончель': 'виол.',
+    'Скрипка и виолончель': 'скр./виол.', 'Флейта': 'фл.', 'Саксофон': 'сакс.',
+    'Кларнет': 'кларн.', 'Труба': 'тр.', 'Ударные инструменты': 'ударн.',
+    'Аккордеон': 'акк.', 'Баян': 'баян', 'Домра': 'домра', 'Балалайка': 'бал.',
+    'Гитара': 'гит.', 'Гитара и балалайка': 'гит./бал.',
+    'Инструменты эстрадного оркестра': 'эстр.'
+  };
+  return labels[instrument] || instrument;
+}
+
 function renderJournalEntry(entry, dates) {
   const group = !entry.memberId && entry.records.some(record => journalLessonRoster(record).participantKind === 'group');
   const countable = entry.records.filter(countableRecord);
   const fullClassName = String(entry.className || '').trim();
   const className = compactJournalClass(fullClassName);
   const classTitle = fullClassName && className !== fullClassName ? ` title="${escapeAttr(fullClassName)}"` : '';
+  const instrumentLabel = entry.showInstrument && entry.instrument
+    ? ` <small class="journal-instrument-short" title="${escapeAttr(entry.instrument)}">· ${escapeHtml(compactJournalInstrument(entry.instrument))}</small>` : '';
   return `<tr class="${group ? 'journal-group-row' : entry.memberId ? 'journal-pupil-row' : ''}">
-    <td class="student-cell">${escapeHtml(entry.name)}</td><td class="class-cell"${classTitle}>${escapeHtml(className)}</td>
+    <td class="student-cell">${escapeHtml(entry.name)}${instrumentLabel}</td><td class="class-cell"${classTitle}>${escapeHtml(className)}</td>
     ${dates.map(date => renderJournalCell(entry, date)).join('')}
     <td class="summary-cell">${entry.memberId ? '—' : formatNumber(sum(countable, 'pedHours'))}</td>
     <td class="summary-cell">${entry.memberId ? '—' : formatNumber(sum(countable, 'kcHours'))}</td>
@@ -2417,7 +2432,8 @@ function journalSections(records) {
   records.forEach((record) => {
     const educationForm = normalizeEducationForm(record.educationForm || educationFormForParticipant(record.studentId));
     const subject = SchoolModel.subjectLabel(record);
-    const key = [educationForm, subject, record.studentId, record.className].join("|");
+    const instrument = String(record.instrument || '').trim();
+    const key = [educationForm, subject, record.studentId, record.className, instrument].join("|");
     if (!entries.has(key)) {
       entries.set(key, {
         educationForm,
@@ -2425,6 +2441,7 @@ function journalSections(records) {
         studentId: record.studentId,
         name: record.studentName || studentName(record.studentId),
         className: record.className || participantById(record.studentId)?.className || "",
+        instrument,
         records: []
       });
     }
@@ -2435,12 +2452,13 @@ function journalSections(records) {
     const formEntries = [...entries.values()].filter((entry) => entry.educationForm === educationForm);
     const subjects = [...new Set(formEntries.map((entry) => entry.subject))]
       .sort(compareJournalSubjects)
-      .map((name) => ({
-        name,
-        entries: formEntries
+      .map((name) => {
+        const entries = formEntries
           .filter((entry) => entry.subject === name)
-          .sort((a, b) => a.name.localeCompare(b.name, "ru"))
-      }));
+          .sort((a, b) => a.name.localeCompare(b.name, "ru") || a.instrument.localeCompare(b.instrument, "ru"));
+        const entryCounts = entries.reduce((counts, entry) => counts.set(entry.studentId, (counts.get(entry.studentId) || 0) + 1), new Map());
+        return {name, entries: entries.map(entry => ({...entry, showInstrument: entryCounts.get(entry.studentId) > 1}))};
+      });
     return { educationForm, subjects };
   }).filter((section) => section.subjects.length);
 }
