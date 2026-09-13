@@ -7,7 +7,7 @@
     <link rel="icon" href="assets/favicon.ico?v=20260901-4" sizes="any" />
     <link rel="icon" href="assets/favicon.png?v=20260901-4" type="image/png" sizes="64x64" />
     <link rel="apple-touch-icon" href="assets/school-journal-logo.png?v=20260901-4" />
-    <link rel="stylesheet" href="styles.css?v=20260911-2" />
+    <link rel="stylesheet" href="styles.css?v=20260913-1" />
   </head>
   <body>
     <section class="login-screen" id="loginScreen">
@@ -67,6 +67,7 @@
           <button class="nav-tab active" type="button" data-tab="dashboard">Кабинет</button>
           <button class="nav-tab" type="button" data-tab="schedule">Расписание</button>
           <button class="nav-tab" type="button" data-tab="journal">Журнал</button>
+          <button class="nav-tab" type="button" data-tab="paid">Платные услуги</button>
           <button class="nav-tab" type="button" data-tab="people">Списки</button>
           <button class="nav-tab" type="button" data-tab="calendar">Календарь</button>
         </nav>
@@ -138,6 +139,27 @@
               <button class="ghost-button" type="button" id="printJournal">Печать</button>
             </div>
             <div class="journal-scroll" id="journalMatrix"></div>
+          </div>
+        </section>
+
+        <section class="tab-view" id="paidView">
+          <div class="content-panel">
+            <div class="panel-toolbar paid-controls">
+              <label>Месяц<input id="paidMonth" type="month" value="2026-09" /></label>
+              <label class="paid-course-control">Занятия<select id="paidCourse"></select></label>
+              <button class="ghost-button" type="button" id="paidReload">Обновить</button>
+              <button class="ghost-button" type="button" id="paidPrint">Печать</button>
+            </div>
+            <div class="panel-toolbar paid-controls">
+              <button class="primary-button" type="button" id="paidAddLesson">Добавить занятие</button>
+              <button class="ghost-button" type="button" id="paidEditCourse">Состав и настройки</button>
+              <button class="ghost-button" type="button" id="paidAddCourse">Новая группа / ученик</button>
+            </div>
+            <p class="paid-help">Отметьте посещаемость и «Проведено». В итог входят только проведённые занятия. Один час — 40 минут.</p>
+            <p id="paidStatus" role="status" aria-live="polite"></p>
+            <div class="paid-print-heading" id="paidHeading"></div>
+            <div class="journal-scroll" id="paidMatrix"></div>
+            <p class="paid-total" id="paidTotal"></p>
           </div>
         </section>
 
@@ -300,6 +322,8 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js"></script>
   <script src="school-model.js?v=20260908-2"></script>
-  <script src="app.js?v=20260911-3"></script>
+  <script src="paid-model.js?v=20260913-1"></script>
+  <script src="app.js?v=20260913-1"></script>
+  <script src="paid-journal.js?v=20260913-1"></script>
   </body>
 </html>

@@ -82,6 +82,7 @@ const views = {
   dashboard: document.querySelector("#dashboardView"),
   schedule: document.querySelector("#scheduleView"),
   journal: document.querySelector("#journalView"),
+  paid: document.querySelector("#paidView"),
   people: document.querySelector("#peopleView"),
   calendar: document.querySelector("#calendarView")
 };
@@ -89,6 +90,7 @@ const titles = {
   dashboard: "Кабинет преподавателя",
   schedule: "Расписание",
   journal: "Журнал занятий",
+  paid: "Платные услуги",
   people: "Списки учеников и сотрудников",
   calendar: "Учебный план"
 };
@@ -689,8 +691,9 @@ function currentTimeLabel() {
 
 function render() {
   renderAuthState();
-  if (!currentUser()) return;
+  if (!currentUser()) { window.PaidJournal?.sync(); return; }
   ensureActiveEmployee();
+  window.PaidJournal?.sync();
   renderEmployeeSelect();
   renderDashboard();
   renderSchedule();
@@ -894,6 +897,7 @@ function switchTab(name) {
   tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === name));
   Object.entries(views).forEach(([viewName, view]) => view.classList.toggle("active", viewName === name));
   pageTitle.textContent = titles[name];
+  window.PaidJournal?.sync();
 }
 
 function openModal(title, body) {

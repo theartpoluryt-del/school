@@ -51,6 +51,28 @@ enrollments. The save RPC rejects unrelated participant IDs, duplicates and atte
 `tests/lesson-members.sql` includes synthetic access tests and a real teacher RPC roundtrip. Run the
 whole file: its `BEGIN` / `ROLLBACK` removes the temporary test schedule row. Never replace the rollback with a commit.
 
+## Paid services
+
+Apply `supabase/paid_journal.sql` after the base schema. The separate **Платные услуги** page
+uses `paid_school_courses` and `paid_school_lessons`, not the main journal JSON. Import private
+rosters directly into the database; never put pupil data in repository seed files.
+
+Each employee maintains their own dated lessons. New lessons snapshot the course roster and
+start with empty attendance, empty grades and `completed=false`. Only completed lessons count
+toward the monthly teacher-hours total; group size does not multiply it. One hour is 40 minutes.
+Future lessons may be scheduled but not marked completed, attended or graded. A course/employee
+has one aggregate lesson per date. Attendance and grades are independent for each pupil.
+
+Administrators can manage courses and assigned employees. Read/write RPCs enforce ownership,
+roster validity and optimistic concurrency (`PT409`, avoiding PostgREST serialization retries).
+Former teachers retain their historical roster only. Removed lessons are soft-deleted and excluded
+from totals. Direct table access is revoked and RLS is enabled. Run `tests/paid-journal.sql` to
+verify actual save/reload, anonymous/foreign access, conflict handling and admin management;
+all test fixtures roll back.
+
+The existing main-journal JSON export does **not** include these separate tables. Database
+backups must include both paid tables as well as `school_state` and staff profiles.
+
 ## Create an employee account
 
 1. Create `username@journal.local` in **Authentication → Users** with a strong temporary password.

@@ -1744,7 +1744,36 @@ th {
   color: var(--muted);
 }
 
+.paid-controls { flex-wrap: wrap; gap: 12px; }
+.paid-course-control { flex: 1; min-width: 200px; }
+.paid-help, #paidStatus, .paid-total, .paid-print-heading { margin: 12px 18px; }
+.paid-help { color: var(--muted); font-size: 13px; }
+.paid-error, #paidFormError { color: #b3243e; }
+.paid-total { font-weight: 700; }
+.paid-table { border-collapse: collapse; width: 100%; }
+.paid-table th, .paid-table td { border: 1px solid #d4dce3; padding: 5px 8px; text-align: center; }
+.paid-table th:first-child { text-align: left; min-width: 200px; position: sticky; left: 0; background: #fff; z-index: 1; }
+.paid-table th { font-size: 13px; text-transform: none; }
+.paid-table input[type=checkbox], .paid-staff-option input[type=checkbox] { width: 18px; height: 18px; min-height: 18px; accent-color: #107e7d; }
+.paid-cell { display: flex; align-items: center; justify-content: center; gap: 5px; min-width: 66px; }
+.paid-grade { width: 44px; min-height: 30px; padding: 3px; }
+.paid-date { border: 0; background: transparent; color: #176d78; padding: 5px; text-decoration: underline; }
+.paid-print-value { display: none; }
+.paid-staff-option { display: flex; align-items: center; gap: 8px; font-weight: 400; }
+#paidCourseForm { display: grid; gap: 12px; }
+#paidCourseForm fieldset { max-height: 200px; overflow: auto; border: 1px solid #d4dce3; }
+#paidCourseForm textarea { width: 100%; padding: 8px; resize: vertical; }
+
 @media print {
+  #paidView .paid-controls, #paidView .paid-help, #paidStatus,
+  #paidView input, #paidView select { display: none !important; }
+  #paidView .paid-print-value { display: inline; }
+  #paidView .paid-table { table-layout: fixed; }
+  #paidView .paid-table th, #paidView .paid-table td { padding: 3px; font-size: 9px; min-width: 0; }
+  #paidView .paid-table th:first-child { width: 48mm; position: static; }
+  #paidView .paid-cell { display: block; min-width: 0; }
+  #paidView .paid-date { padding: 0; color: #000; text-decoration: none; font: inherit; }
+  #paidView .paid-total, #paidView .paid-print-heading { margin: 8px 0; }
   .journal-roster-details, .journal-roster-edit, .journal-roster-label { display: none; }
   /* The journal form contains grades/dots, not lesson accounting annotations. */
   .print-lesson-details, .print-roster-report, .person-hours-note { display: none; }
