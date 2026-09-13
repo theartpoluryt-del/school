@@ -167,8 +167,11 @@ button {
 }
 
 .schedule-modal-form {
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
+
+.schedule-modal-form > * { min-width: 0; }
+.schedule-modal-form > fieldset, .schedule-modal-form > .muted-note { grid-column: 1 / -1; }
 
 .schedule-modal-form .primary-button {
   grid-column: 1 / -1;
@@ -537,6 +540,10 @@ label {
   grid-template-columns: repeat(3, minmax(160px, 1fr));
   gap: 14px;
 }
+
+.form-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.schedule-modal-form .schedule-time-modal { grid-column: 1 / -1; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.schedule-time-modal > label { min-width: 0; }
 
 .schedule-grid {
   grid-template-columns: repeat(4, minmax(140px, 1fr));
@@ -2192,7 +2199,9 @@ th {
   }
 
   .modal-form,
+  .modal-form .form-grid.two,
   .schedule-modal-form,
+  .schedule-modal-form .schedule-time-modal,
   .schedule-time-modal,
   .assignment-grid {
     grid-template-columns: minmax(0, 1fr);
