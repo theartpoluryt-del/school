@@ -30,6 +30,19 @@ test('40-minute academic hours and decimal comma', () => {
   assert.equal(model.endTime('23:50',1),'');
   assert.equal(model.endTime('10:00',0),'');
 });
+
+test('choir actual minutes and workload are independent without changing ordinary lessons', () => {
+  assert.equal(model.endTime('10:00',1.5,55),'10:55');
+  assert.equal(model.endTime('10:00',1.5,60),'11:00');
+  assert.equal(model.endTime('10:00',2,80),'11:20');
+  assert.equal(model.endTime('10:00',0.5),'10:20');
+  assert.equal(model.endTime('23:30',1.5,55),'');
+  assert.equal(model.endTime('10:00',1.5,-55),'');
+  const first={time:'10:00-10:55',academicHours:1.5,pedHours:1.5,kcHours:0,participantIds:['a','b']};
+  assert.equal(model.lessonHours(first),1.5);
+  assert.equal(model.personHours(first),3);
+  assert.equal(model.personHours({...first,academicHours:0}),0);
+});
 test('same child and teacher can have distinct instruments and classes', () => {
   const student={enrollments:[
     {id:'flute',instrument:'Флейта',subject:'Специальность',className:'6 кл',employeeIds:['teacher']},

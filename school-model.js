@@ -23,11 +23,13 @@
       className: course.className || '', educationForm: course.educationForm, type: course.subject || 'Специальность' });
     return row;
   }
-  function endTime(start, hours) {
+  function endTime(start, hours, durationMinutes) {
     const value = Number(String(hours).replace(',', '.'));
     if (!/^\d{2}:\d{2}$/.test(start) || !Number.isFinite(value) || value <= 0) return '';
     const [h,m] = start.split(':').map(Number);
-    const end = h * 60 + m + Math.round(value * 40);
+    const minutes = durationMinutes == null ? value * 40 : Number(durationMinutes);
+    if (!Number.isFinite(minutes) || minutes <= 0) return '';
+    const end = h * 60 + m + Math.round(minutes);
     if (h > 23 || m > 59 || end >= 1440) return '';
     return `${String(Math.floor(end / 60)).padStart(2,'0')}:${String(end % 60).padStart(2,'0')}`;
   }
@@ -40,6 +42,8 @@
     return [...new Set((ids || []).filter(id => typeof id === 'string' && id))];
   }
   function lessonHours(lesson) {
+    // Some curricula allocate 1.5 academic hours to 55 clock minutes.
+    if (lesson.academicHours != null && Number.isFinite(Number(lesson.academicHours)) && Number(lesson.academicHours) >= 0) return Number(lesson.academicHours);
     const match = String(lesson.time || '').match(/^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/);
     if (match) {
       const [,h,m,eh,em] = match.map(Number);

@@ -24,7 +24,7 @@ const weekdays = {
 };
 
 const workWeekdays = [1, 2, 3, 4, 5, 6];
-const lessonTypes = ["Специальность", "Музыкальный инструмент", "Постановка голоса", "Сценическая речь", "Ансамбль", "Оркестр", "Хор", "Сольфеджио", "Концертмейстер"];
+const lessonTypes = ["Специальность", "Музыкальный инструмент", "Постановка голоса", "Дирижирование", "Сольное пение", "Сценическая речь", "Ансамбль", "Оркестр", "Хор", "Сольфеджио", "Концертмейстер"];
 const educationForms = ["ДПП", "ДОП"];
 const dopSubjectName = "Музыкальные инструменты";
 const instrumentCatalog = [
@@ -132,6 +132,8 @@ document.querySelector("#holidayForm").addEventListener("submit", addHoliday);
 document.querySelector("#generateJournal").addEventListener("click", generateSelectedMonth);
 document.querySelector("#printJournal").addEventListener("click", () => window.print());
 document.querySelector('#journalInstrument').addEventListener('change', renderJournal);
+document.querySelector('#journalSubject').addEventListener('change', renderJournal);
+document.querySelector('#journalGroup').addEventListener('change', renderJournal);
 document.querySelector("#journalMonth").addEventListener("change", () => {
   const month = document.querySelector("#journalMonth").value;
   document.querySelector("#generateAsOf").value = `${month}-25`;
@@ -158,7 +160,10 @@ document.addEventListener("click", (event) => {
   if (name === "deleteScheduleArchive") deleteScheduleArchive(id);
   if (name === "printSchedule") printSchedule();
   if (name === "lessonMembers") openLessonMembers(id);
+  if (name === "lessonDuration") openLessonDuration(id);
   if (name === "journalRoster") openJournalRoster(id);
+  if (name === "journalTopic") openJournalTopic(id);
+  if (name === "resetJournalHours") resetJournalHours(id);
   if (name === "resetJournalRoster") resetJournalRoster(id);
   if (name === "lessonMembersClear") document.querySelectorAll('#modalContent input[name="lessonMemberIds"]').forEach(input => { input.checked = false; });
   if (name === "deleteStudent") deleteStudent(id);
@@ -195,7 +200,9 @@ document.addEventListener("submit", async (event) => {
   if (type === "schedule") addScheduleFromModal(form);
   if (type === "archiveSchedule") archiveCurrentSchedule(form);
   if (type === "lessonMembers") saveLessonMembers(form);
+  if (type === "lessonDuration") saveLessonDuration(form);
   if (type === "journalRoster") saveJournalRoster(form);
+  if (type === "journalTopic") saveJournalTopic(form);
 });
 
 document.addEventListener("dragstart", (event) => {
@@ -250,6 +257,12 @@ document.addEventListener("change", (event) => {
     const type = event.target.value;
     refreshModalCourses(event.target.closest('form'));
     event.target.value = type;
+    if (type === 'Дирижирование') {
+      const form = event.target.closest('form');
+      form.elements.pedHours.value = '0.5'; form.elements.kcHours.value = '0';
+      delete form.dataset.lessonMinutes;
+      form.elements.endTime.value = SchoolModel.endTime(form.elements.startTime.value, 0.5);
+    }
     return;
   }
   if (event.target.matches('[data-hour-field]')) { changeScheduleHours(event.target); return; }
@@ -267,7 +280,7 @@ document.addEventListener("input", (event) => {
   if (event.target.matches('[data-modal-start], [data-modal-hours]')) {
     const form = event.target.closest('form');
     const hours = Number(form.elements.pedHours.value.replace(',', '.')) + Number(form.elements.kcHours.value.replace(',', '.'));
-    const end = SchoolModel.endTime(form.elements.startTime.value, hours);
+    const end = SchoolModel.endTime(form.elements.startTime.value, hours, form.dataset.lessonMinutes);
     form.elements.endTime.value = end;
     form.elements.endTime.setCustomValidity(end ? '' : 'Проверьте начало и длительность занятия');
     return;
@@ -984,7 +997,7 @@ function openAssignGroupModal(groupId) {
       <div class="assignment-grid">
         <section>
           <h4>Ученики в группе</h4>
-          ${studentPicker(group.studentIds || [])}
+          ${group.choirLevel ? choirGroupPicker(group) : studentPicker(group.studentIds || [])}
         </section>
         <section>
           <h4>Преподаватели группы</h4>
@@ -1062,7 +1075,7 @@ function openScheduleModal(weekday) {
       <label>Предмет<select name="type" data-modal-lesson-type>${lessonTypeOptions("Специальность")}</select></label>
       <label><span data-course-label>Предмет · инструмент · класс</span><select name="enrollmentId" data-modal-course></select></label>
       <label>Класс<input type="text" name="className" value="${escapeAttr(participant.className || "")}" data-modal-class readonly /></label>
-      <p class="muted-note">Укажите часы в Пед. или Кц: 1 час = 40 минут. Окончание рассчитается автоматически.</p>
+      <p class="muted-note" data-modal-duration-note>Укажите часы в Пед. или Кц: 1 час = 40 минут. Окончание рассчитается автоматически.</p>
       <label>Кабинет<input type="text" inputmode="numeric" name="room" placeholder="18" data-numeric-input /></label>
       <button class="primary-button" type="submit">Добавить</button>
     </form>
@@ -1118,6 +1131,22 @@ function refreshModalCourses(form) {
   form.elements.enrollmentId.value = row.enrollmentId;
   form.elements.enrollmentId.required = courses.length > 0;
   const participant = participantById(row.studentId);
+  if (form.dataset.durationParticipant !== row.studentId) {
+    form.dataset.durationParticipant = row.studentId;
+    if (participant?.choirLevel) {
+      form.dataset.lessonMinutes = participant.defaultLessonMinutes;
+      form.elements.pedHours.value = participant.defaultPedHours;
+      form.elements.kcHours.value = '0'; form.elements.type.value = 'Хор';
+    } else {
+      delete form.dataset.lessonMinutes;
+      form.elements.pedHours.value = '1'; form.elements.kcHours.value = '0';
+    }
+    const hours = Number(form.elements.pedHours.value) + Number(form.elements.kcHours.value);
+    form.elements.endTime.value = SchoolModel.endTime(form.elements.startTime.value, hours, form.dataset.lessonMinutes);
+  }
+  form.querySelector('[data-modal-duration-note]').textContent = participant?.choirLevel
+    ? `${participant.defaultLessonMinutes} минут; ${participant.defaultPedHours} ч. нагрузки. Два занятия в неделю: добавьте каждое в нужный день. Минуты и нагрузка хранятся отдельно.`
+    : 'Укажите часы в Пед. или Кц: 1 час = 40 минут. Окончание рассчитается автоматически.';
   form.elements.enrollmentId.closest('label').classList.toggle('is-hidden', participant?.kind === 'group');
   const previousMembers = form.querySelector('[data-modal-members]');
   const selectedMembers = previousMembers?.dataset.groupId === row.studentId ? checkedValues(form, 'lessonMemberIds') : participant?.studentIds || [];
@@ -1130,7 +1159,7 @@ function refreshModalCourses(form) {
 
 function lessonMemberCandidates(group) {
   const ids = new Set([...(group.studentIds || []), ...visibleStudents().map(s => s.id)]);
-  return state.students.filter(s => ids.has(s.id) && !s.isArchived).sort((a,b) => a.name.localeCompare(b.name,'ru'));
+  return state.students.filter(s => ids.has(s.id) && !s.isArchived && (!group.choirLevel || (group.candidateStudentIds || group.studentIds || []).includes(s.id))).sort((a,b) => a.name.localeCompare(b.name,'ru'));
 }
 
 function lessonMemberCheckboxes(group, selected, candidates = lessonMemberCandidates(group)) {
@@ -1255,10 +1284,19 @@ function applyModalCourse(form) {
 
 function initializeScheduleCourse(row) {
   const group = state.groups.find(g => g.id === row.studentId);
-  if (group) { row.educationForm = group.educationForm; row.participantKind = 'group'; row.participantIds = [...(group.studentIds || [])]; return row; }
+  if (group) {
+    row.educationForm = group.educationForm; row.participantKind = 'group'; row.participantIds = [...(group.studentIds || [])];
+    if (group.choirLevel) {
+      row.type = 'Хор'; row.pedHours = group.defaultPedHours; row.kcHours = 0;
+      row.durationHours = group.defaultPedHours; row.academicHours = group.defaultPedHours;
+      row.lessonMinutes = group.defaultLessonMinutes; row.instrument = 'Хоровое пение';
+    }
+    return row;
+  }
   const courses = courseOptionsFor(row.studentId, row.employeeId);
   if (courses.length === 1) SchoolModel.applyCourse(row, courses[0]);
   else if (courses.length > 1) { row.className = ''; row.needsCourseSelection = true; }
+  if (row.type === 'Дирижирование') { row.pedHours = 0.5; row.kcHours = 0; row.durationHours = 0.5; }
   return row;
 }
 
@@ -1269,15 +1307,46 @@ function changeScheduleHours(input) {
   const field = input.dataset.scheduleField;
   const value = Number(input.value.replace(',', '.'));
   const total = value + Number(row[field === 'pedHours' ? 'kcHours' : 'pedHours'] || 0);
-  const end = SchoolModel.endTime(start, total);
+  const end = SchoolModel.endTime(start, total, row.academicHours != null ? row.lessonMinutes : undefined);
   input.setCustomValidity(input.value.trim() && Number.isFinite(value) && value >= 0 && (!start || total === 0 || end) ? '' : 'Введите неотрицательное число часов; окончание должно быть до полуночи');
   if (!input.reportValidity()) return;
   if (value === Number(row[field])) return;
   row[field] = value;
   row.durationHours = total;
+  if (row.academicHours != null) row.academicHours = total;
   if (start && end) row.time = `${start}-${end}`;
   refreshGeneratedJournalForScheduleChange(row);
   persistAndRender();
+}
+
+function openLessonDuration(id) {
+  const row = state.schedule.find(r => r.id === id && r.employeeId === state.activeEmployeeId);
+  if (!row) return;
+  const parts = scheduleTimeParts(row);
+  const minutes = row.lessonMinutes || (minutesFromTime(parts.end) - minutesFromTime(parts.start)) || 40;
+  openModal('Длительность и нагрузка', `<form class="modal-form" data-modal-form="lessonDuration" data-row-id="${escapeAttr(id)}">
+    <p>${escapeHtml(studentName(row.studentId))} · ${escapeHtml(row.type)}. Нагрузка: ${formatNumber(Number(row.pedHours || 0) + Number(row.kcHours || 0))} ч.</p>
+    <label class="checkbox-label"><input type="checkbox" name="separate" ${row.academicHours != null ? 'checked' : ''} />Время занятия отдельно от нагрузки</label>
+    <label>Продолжительность, минут<input name="minutes" type="number" min="5" max="720" step="1" required value="${minutes}" /></label>
+    <p class="muted-note">Например, хор первого класса: 55 минут и 1,5 часа нагрузки. При отдельном времени поля «Пед.» и «Кц» меняют нагрузку, а начало и окончание — минуты. Без этой настройки один час равен 40 минутам.</p>
+    <button class="primary-button" type="submit">Сохранить</button></form>`);
+}
+
+function saveLessonDuration(form) {
+  const row = state.schedule.find(r => r.id === form.dataset.rowId && r.employeeId === state.activeEmployeeId);
+  if (!row) return;
+  const total = Number(row.pedHours || 0) + Number(row.kcHours || 0);
+  const minutes = Number(form.elements.minutes.value);
+  const separate = form.elements.separate.checked;
+  const start = scheduleTimeParts(row).start;
+  const end = SchoolModel.endTime(start,total,separate ? minutes : undefined);
+  if (!Number.isInteger(minutes) || minutes < 5 || minutes > 720 || total <= 0 || (start && !end)) { alert('Проверьте минуты и нагрузку; окончание должно быть до полуночи.'); return; }
+  if (separate) { row.academicHours=total; row.lessonMinutes=minutes; }
+  else { delete row.academicHours; delete row.lessonMinutes; }
+  row.durationHours=total;
+  if (start) row.time=`${start}-${end}`;
+  refreshGeneratedJournalForScheduleChange(row);
+  closeModal(); persistAndRender();
 }
 
 function addScheduleRow(weekday) {
@@ -1331,7 +1400,14 @@ function updateScheduleField(field) {
     row[key] = digitsOnly(field.value);
   } else {
     row[key] = field.value.trim();
-    if (key === "type") updateHoursFromTime(row);
+    if (key === "type") {
+      if (row.type === 'Дирижирование') {
+        row.pedHours=0.5; row.kcHours=0; row.durationHours=0.5;
+        delete row.academicHours; delete row.lessonMinutes;
+        const start=scheduleTimeParts(row).start; const end=SchoolModel.endTime(start,0.5);
+        if (end) row.time=`${start}-${end}`;
+      } else updateHoursFromTime(row);
+    }
   }
 
   refreshGeneratedJournalForScheduleChange(row);
@@ -1345,7 +1421,7 @@ function handleTimeInput(input) {
   const endInput = wrapper.querySelector('[data-time-bound="end"]');
   if (input === startInput && startInput.value) {
     const row = state.schedule.find((item) => item.id === input.dataset.scheduleId);
-    endInput.value = SchoolModel.endTime(startInput.value, row?.durationHours || Number(row?.pedHours || 0) + Number(row?.kcHours || 0) || 1);
+    endInput.value = SchoolModel.endTime(startInput.value, row?.durationHours || Number(row?.pedHours || 0) + Number(row?.kcHours || 0) || 1, row?.academicHours != null ? row.lessonMinutes : undefined);
   }
   validateScheduleTimePair(wrapper);
 }
@@ -1366,6 +1442,10 @@ function commitScheduleTime(input) {
 
   row.time = `${startInput.value}-${endInput.value}`;
   row.durationHours = (minutesFromTime(endInput.value) - minutesFromTime(startInput.value)) / 40;
+  if (row.academicHours != null) {
+    row.lessonMinutes = minutesFromTime(endInput.value) - minutesFromTime(startInput.value);
+    row.durationHours = row.academicHours;
+  }
   updateHoursFromTime(row);
   refreshGeneratedJournalForScheduleChange(row);
   refreshCalculatedHourInputs(wrapper, row);
@@ -1511,13 +1591,23 @@ function assignStudentFromModal(form) {
 }
 
 function assignGroupFromModal(form) {
+  if (!isAdmin()) return;
   const group = state.groups.find((item) => item.id === form.dataset.groupId);
   if (!group) return;
+  const selected = selectedStudentIdsFromForm(form);
+  if (group.choirLevel) {
+    const conflict = state.groups.find(other => !other.isArchived && other.id !== group.id && other.choirLevel === group.choirLevel
+      && (other.assignedEmployeeIds || []).some(id => (group.assignedEmployeeIds || []).includes(id))
+      && (other.studentIds || []).some(id => selected.includes(id)));
+    if (conflict) { alert(`Некоторые ученики уже входят в «${conflict.name}». Сначала уберите их из прежней группы.`); return; }
+    const allowed = new Set(lessonMemberCandidates(group).map(s => s.id));
+    if (selected.some(id => !allowed.has(id))) { alert('Выберите учеников соответствующих классов.'); return; }
+  }
   group.educationForm = normalizeEducationForm(form.elements.educationForm.value);
   state.records.filter((record) => record.studentId === group.id).forEach((record) => {
     record.educationForm = group.educationForm;
   });
-  group.studentIds = selectedStudentIdsFromForm(form);
+  group.studentIds = selected;
   group.assignedEmployeeIds = checkedValues(form, "employeeIds");
   closeModal();
   persistAndRender();
@@ -1669,8 +1759,16 @@ function addScheduleFromModal(form) {
     row.participantIds = checkedValues(form,'lessonMemberIds').filter(id => allowed.has(id));
     if (!row.participantIds.length) { alert('Выберите хотя бы одного ученика в состав занятия.'); return; }
   }
+  // Course supplies instrument/class; the explicit subject selected by the teacher wins.
+  row.type = form.elements.type.value;
   row.durationHours = (minutesFromTime(end) - minutesFromTime(start)) / 40;
-  if (!Number.isFinite(row.pedHours) || !Number.isFinite(row.kcHours) || row.pedHours < 0 || row.kcHours < 0 || row.durationHours <= 0) {
+  if (participant.choirLevel) {
+    row.academicHours = row.pedHours + row.kcHours;
+    row.lessonMinutes = minutesFromTime(end) - minutesFromTime(start);
+    row.durationHours = row.academicHours;
+    row.instrument = 'Хоровое пение';
+  }
+  if (!Number.isFinite(row.pedHours) || !Number.isFinite(row.kcHours) || row.pedHours < 0 || row.kcHours < 0 || row.pedHours + row.kcHours <= 0 || row.durationHours <= 0) {
     form.elements.pedHours.setCustomValidity("Введите неотрицательные часы; сумма Пед. и Кц должна быть больше нуля");
     form.elements.pedHours.reportValidity();
     return;
@@ -1894,9 +1992,15 @@ function refreshJournalMonth(month, asOf, employeeId) {
         type: row.type,
         pedHours: row.pedHours,
         kcHours: row.kcHours,
+        academicHours: previous?.hoursOverride ? previous.academicHours : row.academicHours,
+        lessonMinutes: row.lessonMinutes,
         grade: previous?.grade || "",
         status: previous?.status === "conducted" || date <= asOf ? "conducted" : "planned"
       });
+      if (previous?.hoursOverride) {
+        const record = state.records[state.records.length - 1];
+        record.pedHours = previous.pedHours; record.kcHours = previous.kcHours;
+      }
       created += 1;
     });
   });
@@ -2067,6 +2171,7 @@ function renderDraggableGroup(group) {
     <button class="schedule-student-chip group-chip" type="button" draggable="true" data-drag-participant="${group.id}" data-action="addParticipant:${group.id}" aria-label="Добавить ${escapeAttr(group.name)} в ${escapeAttr(weekdays[activeScheduleWeekday])}">
       <strong>${escapeHtml(group.name)}</strong>
       <span>${escapeHtml(group.className || "\u0433\u0440\u0443\u043f\u043f\u0430")}</span>
+      ${group.choirLevel ? `<span>${(group.studentIds || []).length} уч. · ${formatNumber(group.defaultPedHours)} ч. / ${group.defaultLessonMinutes} мин · 2 раза в неделю</span>` : ''}
     </button>
   `;
 }
@@ -2086,6 +2191,7 @@ function renderScheduleRow(row) {
           <span class="time-dash">-</span>
           <input class="schedule-time-input" type="time" value="${escapeAttr(time.end)}" step="300" aria-label="Окончание занятия" data-schedule-id="${row.id}" data-schedule-time data-time-bound="end" />
         </span>
+        <button class="lesson-duration-button" type="button" data-action="lessonDuration:${escapeAttr(row.id)}">${row.academicHours != null ? `${formatNumber(row.lessonMinutes)} мин · отдельно от нагрузки` : 'Длительность'}</button>
       </td>
       <td class="participant-cell" data-label="Ученик / группа"><strong>${escapeHtml(participant?.name || "Не найдено")}</strong>${participant?.kind === 'group' ? membersControl : simple ? '' : courseSelect}</td>
       <td class="class-cell" data-label="Класс">${escapeHtml(row.className || (courseOptionsFor(row.studentId, row.employeeId).length ? 'Выберите предмет' : participant?.className || ""))}</td>
@@ -2243,6 +2349,94 @@ function addScheduleFromParticipant(participantId, weekday) {
   persistAndRender();
 }
 
+function choirGroupPicker(group) {
+  const candidates = lessonMemberCandidates(group);
+  return `<p class="muted-note">${escapeHtml(group.className)} · ${formatNumber(group.defaultPedHours)} ч. / ${group.defaultLessonMinutes} мин, два раза в неделю. Распределите учеников между группами один раз. Состав подставляется в новые занятия; уже сохранённые занятия и оценки не меняются.</p>
+    <div data-member-picker><label>Поиск по фамилии<input type="search" data-member-search /></label><div class="lesson-member-list">${candidates.map(s => {
+      const other = state.groups.find(g => !g.isArchived && g.id !== group.id && g.choirLevel === group.choirLevel && (g.studentIds || []).includes(s.id));
+      return `<label class="checkbox-label"><input type="checkbox" name="studentIds" value="${escapeAttr(s.id)}" ${(group.studentIds || []).includes(s.id) ? 'checked' : ''} />${escapeHtml(s.name)}${other ? ` <small>— ${escapeHtml(other.name)}</small>` : ''}</label>`;
+    }).join('')}</div></div>`;
+}
+
+function refreshJournalFilter(selector, placeholder, entries) {
+  const select = document.querySelector(selector);
+  const previous = select.value;
+  const options = [...new Map(entries.filter(([id]) => id)).entries()].sort((a,b) => a[1].localeCompare(b[1], 'ru'));
+  select.innerHTML = `<option value="">${placeholder}</option>` + options.map(([id,label]) => `<option value="${escapeAttr(id)}">${escapeHtml(label)}</option>`).join('');
+  select.value = options.some(([id]) => id === previous) ? previous : '';
+  return select.value;
+}
+
+function openJournalTopic(id) {
+  const record = state.records.find(r => r.id === id && r.employeeId === state.activeEmployeeId);
+  if (!record) return;
+  openModal('Тема и часы занятия', `<form class="modal-form" data-modal-form="journalTopic" data-record-id="${escapeAttr(id)}">
+    <p>${formatDate(record.date)} · ${escapeHtml(record.time)} · ${escapeHtml(record.studentName || studentName(record.studentId))} · ${escapeHtml(SchoolModel.subjectLabel(record))}</p>
+    <label>Тема / содержание урока<textarea name="topic" rows="4" maxlength="2000">${escapeHtml(record.topic || '')}</textarea></label>
+    <div class="form-grid two"><label>Пед.<input name="pedHours" type="number" min="0" max="24" step="0.25" required value="${Number(record.pedHours || 0)}" /></label>
+    <label>Кц<input name="kcHours" type="number" min="0" max="24" step="0.25" required value="${Number(record.kcHours || 0)}" /></label></div>
+    <p class="muted-note">Изменение часов действует только на эту дату, в том числе прошлую. За групповое занятие часы преподавателя считаются один раз. Тема и оценки сохраняются при обновлении журнала.</p>
+    ${record.hoursOverride ? `<button type="button" class="ghost-button" data-action="resetJournalHours:${escapeAttr(id)}">Вернуть часы из расписания</button>` : ''}
+    <button type="submit" class="primary-button">Сохранить</button></form>`);
+}
+
+function saveJournalTopic(form) {
+  const record = state.records.find(r => r.id === form.dataset.recordId && r.employeeId === state.activeEmployeeId);
+  if (!record) return;
+  const ped = Number(form.elements.pedHours.value), kc = Number(form.elements.kcHours.value);
+  const topic = form.elements.topic.value.trim();
+  if (!Number.isFinite(ped) || !Number.isFinite(kc) || ped < 0 || kc < 0 || ped + kc > 24 || topic.length > 2000) {
+    alert('Проверьте часы (от 0 до 24) и длину темы (до 2000 символов).'); return;
+  }
+  if (ped !== Number(record.pedHours || 0) || kc !== Number(record.kcHours || 0)) {
+    record.pedHours = ped; record.kcHours = kc;
+    record.academicHours = ped + kc; record.hoursOverride = true;
+  }
+  record.topic = topic;
+  closeModal(); persistAndRender();
+}
+
+function resetJournalHours(id) {
+  const record = state.records.find(r => r.id === id && r.employeeId === state.activeEmployeeId);
+  const row = record && state.schedule.find(r => r.id === record.scheduleId && r.employeeId === record.employeeId);
+  if (!row) return;
+  record.pedHours = row.pedHours; record.kcHours = row.kcHours;
+  if (row.academicHours != null) record.academicHours = row.academicHours; else delete record.academicHours;
+  delete record.hoursOverride;
+  closeModal(); persistAndRender();
+}
+
+function journalMonthlyRows(records) {
+  // Count a group lesson once, never once per pupil. Individual entries remain separate by course.
+  const rows = new Map();
+  records.filter(countableRecord).forEach(r => {
+    const key = [r.studentId, r.type, r.instrument || '', r.className || ''].join('|');
+    if (!rows.has(key)) rows.set(key, {name: r.studentName || studentName(r.studentId), subject: SchoolModel.subjectLabel(r), className: r.className || '', hours: {}});
+    const entry = rows.get(key), month = r.date.slice(0,7);
+    entry.hours[month] = (entry.hours[month] || 0) + Number(r.pedHours || 0) + Number(r.kcHours || 0);
+  });
+  return [...rows.values()].sort((a,b) => a.subject.localeCompare(b.subject,'ru') || a.name.localeCompare(b.name,'ru'));
+}
+
+function renderJournalDetails(records, month) {
+  if (!records.length) return '';
+  const sorted = [...records].sort((a,b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || '') || (a.studentName || '').localeCompare(b.studentName || ''));
+  const year = Number(month.slice(0,4)) - (Number(month.slice(5,7)) < 9 ? 1 : 0);
+  const months = Array.from({length:12}, (_,i) => `${year + (i >= 4 ? 1 : 0)}-${String((i+8)%12+1).padStart(2,'0')}`);
+  const instrument = document.querySelector('#journalInstrument').value;
+  const subject = document.querySelector('#journalSubject').value;
+  const group = document.querySelector('#journalGroup').value;
+  const yearRecords = employeeRecords().filter(r => months.includes(r.date.slice(0,7)) && (!instrument || r.instrument === instrument) && (!subject || r.type === subject) && (!group || r.studentId === group));
+  const monthly = journalMonthlyRows(yearRecords);
+  const heading = [monthLabel(month), subject, group ? studentName(group) : '', instrument].filter(Boolean).map(escapeHtml).join(' · ');
+  return `<section class="journal-detail-section"><h3>Темы и часы · ${heading}</h3>
+    <div class="journal-detail-scroll"><table class="journal-detail-table"><thead><tr><th>Дата</th><th>Время</th><th>Группа / ученик · предмет</th><th>Пед.</th><th>Кц</th><th>Тема урока</th><th class="journal-edit-column"></th></tr></thead><tbody>${sorted.map(r => `<tr>
+      <td>${formatDate(r.date)}</td><td>${escapeHtml(r.time || '')}</td><td>${escapeHtml(r.studentName || studentName(r.studentId))}<small>${escapeHtml(SchoolModel.subjectLabel(r))} · ${escapeHtml(compactJournalClass(r.className))}</small></td>
+      <td>${formatNumber(r.pedHours)}</td><td>${formatNumber(r.kcHours)}</td><td class="journal-topic-text">${escapeHtml(r.topic || '—')}</td><td class="journal-edit-column"><button class="ghost-button" type="button" data-action="journalTopic:${escapeAttr(r.id)}" aria-label="Тема и часы ${escapeAttr(r.studentName || studentName(r.studentId))} ${escapeAttr(r.date)} ${escapeAttr(r.time || '')}">Заполнить</button></td></tr>`).join('')}</tbody></table></div></section>
+    <section class="journal-detail-section journal-monthly-section"><h3>Часы по месяцам · ${year}/${year+1}</h3><p class="muted-note">По сформированным журналам, за полные месяцы, включая будущие занятия. «—» — нет занятий в журнале. Групповые часы не умножаются на число детей.</p>
+    <div class="journal-detail-scroll"><table class="journal-detail-table"><thead><tr><th>Группа / ученик · предмет</th>${months.map(m => `<th>${escapeHtml(monthLabel(m))}</th>`).join('')}<th>Всего</th></tr></thead><tbody>${monthly.map(row => `<tr><td>${escapeHtml(row.name)}<small>${escapeHtml(row.subject)} · ${escapeHtml(compactJournalClass(row.className))}</small></td>${months.map(m => `<td>${Object.hasOwn(row.hours,m) ? formatNumber(row.hours[m]) : '—'}</td>`).join('')}<td>${formatNumber(Object.values(row.hours).reduce((a,b) => a+b,0))}</td></tr>`).join('')}</tbody><tfoot><tr><th>Итого, Пед. + Кц</th>${months.map(m => `<th>${monthly.some(r => Object.hasOwn(r.hours,m)) ? formatNumber(monthly.reduce((total,r) => total+(r.hours[m] || 0),0)) : '—'}</th>`).join('')}<th>${formatNumber(monthly.reduce((total,r) => total + Object.values(r.hours).reduce((a,b) => a+b,0),0))}</th></tr></tfoot></table></div></section>`;
+}
+
 function renderJournal() {
   const month = document.querySelector("#journalMonth").value;
   const monthRecords = employeeRecords().filter((record) => record.date.startsWith(month) && !isHoliday(record.date));
@@ -2251,10 +2445,15 @@ function renderJournal() {
   const instruments = uniqueTextValues(monthRecords.map(r => r.instrument)).sort((a,b) => a.localeCompare(b,'ru'));
   filter.innerHTML = '<option value="">Все инструменты</option>' + instruments.map(instrument => `<option value="${escapeAttr(instrument)}">${escapeHtml(instrument)}</option>`).join('');
   filter.value = instruments.includes(selectedInstrument) ? selectedInstrument : '';
-  const records = monthRecords.filter(r => !filter.value || r.instrument === filter.value);
+  const instrumentRecords = monthRecords.filter(r => !filter.value || r.instrument === filter.value);
+  const subject = refreshJournalFilter('#journalSubject', 'Все предметы', instrumentRecords.map(r => [r.type, r.type]));
+  const subjectRecords = instrumentRecords.filter(r => !subject || r.type === subject);
+  const group = refreshJournalFilter('#journalGroup', 'Все группы и ученики', subjectRecords.filter(r => state.groups.some(g => g.id === r.studentId)).map(r => [r.studentId, r.studentName || studentName(r.studentId)]));
+  const records = subjectRecords.filter(r => !group || r.studentId === group);
   const dates = uniqueRecordDates(records);
 
   document.querySelector("#journalTitle").textContent = `Журнал за ${monthLabel(month)}`;
+  document.querySelector('#journalDetails').innerHTML = renderJournalDetails(records, month);
   if (!dates.length) {
     document.querySelector("#journalMatrix").innerHTML = `<div class="empty-state">Нет дат занятий за выбранный месяц.</div>`;
     return;
@@ -2290,7 +2489,7 @@ function renderJournal() {
       ${renderJournalTotal("ДОП", totals.dop)}
       ${renderJournalTotal("Итого", totals.total)}
     </div>
-    <p class="muted-note person-hours-note">Человеко-часы считаются за весь выбранный месяц, включая будущие занятия: длительность занятия в учебных часах (40 минут) × число учеников, независимо от явки. Неучебные дни не учитываются. Нажмите на число учеников под датой, чтобы раскрыть «Исправить состав»: изменение действует только на выбранную дату, включая прошлые занятия. Оценки ставятся отдельно в строках учеников. Пед. и КЦ считаются один раз за групповое занятие.</p>
+    <p class="muted-note person-hours-note">Человеко-часы считаются за весь выбранный месяц, включая будущие занятия: учебные часы × число учеников, независимо от явки. Для занятий с отдельной длительностью берётся заданная нагрузка, а не минуты. Неучебные дни не учитываются. Состав можно исправить на конкретную дату; оценки ставятся отдельно каждому ученику. Пед. и КЦ считаются один раз за групповое занятие.</p>
     ${renderLessonRosterPrintReport(records)}
   `;
 }
@@ -2300,7 +2499,12 @@ function journalPupilEntries(entry) {
   entry.records.forEach(record => {
     const roster = journalLessonRoster(record);
     roster.participantIds.forEach(id => {
-      if (!pupils.has(id)) pupils.set(id, {memberId: id, name: roster.participantNames[id], className: entry.className, records: []});
+      const group = state.groups.find(g => g.id === record.studentId);
+      const pupil = state.students.find(s => s.id === id);
+      const choirCourse = group?.choirLevel && (pupil?.enrollments || []).find(e => e.educationForm === 'ДПП' && (e.program === 'Хоровое пение' || e.instrument === 'Хоровое пение'));
+      const choirClass = choirCourse ? compactJournalClass(choirCourse.className) : '';
+      const pupilClass = choirClass && choirCourse.termYears && !choirClass.includes('/') ? `${choirClass}/${choirCourse.termYears}` : choirClass;
+      if (!pupils.has(id)) pupils.set(id, {memberId: id, name: roster.participantNames[id], className: pupilClass || entry.className, records: []});
       pupils.get(id).records.push(record);
     });
   });
@@ -2512,7 +2716,7 @@ function renderPeople() {
   const teacherMatches = (ids) => !selectedTeacherId || (ids || []).includes(selectedTeacherId);
 
   const studentSource = (isAdmin() ? state.students : visibleStudents()).filter((student) => !student.isArchived);
-  const groupSource = isAdmin() ? state.groups : visibleGroups();
+  const groupSource = isAdmin() ? state.groups.filter(g => !g.isArchived) : visibleGroups();
   const students = studentSource
     .filter((student) => teacherMatches(student.assignedEmployeeIds))
     .filter((student) => matchesStudentInstrument(student, selectedStudentInstrument))
@@ -2785,9 +2989,9 @@ function visibleStudents() {
 
 function visibleGroups() {
   if (isAdmin()) {
-    return state.groups.filter((group) => (group.assignedEmployeeIds || []).includes(state.activeEmployeeId));
+    return state.groups.filter((group) => !group.isArchived && (group.assignedEmployeeIds || []).includes(state.activeEmployeeId));
   }
-  return state.groups.filter((group) => (group.assignedEmployeeIds || []).includes(state.sessionEmployeeId));
+  return state.groups.filter((group) => !group.isArchived && (group.assignedEmployeeIds || []).includes(state.sessionEmployeeId));
 }
 
 function visibleParticipants() {
@@ -2972,7 +3176,7 @@ function normalizeTimePoint(value) {
 function scheduleTimeParts(row) {
   const parts = splitScheduleTime(row.time);
   if (!parts.end && parts.start) {
-    parts.end = addMinutesToTime(parts.start, (Number(row.pedHours || 0) + Number(row.kcHours || 0)) * 40);
+    parts.end = SchoolModel.endTime(parts.start, Number(row.pedHours || 0) + Number(row.kcHours || 0), row.academicHours != null ? row.lessonMinutes : undefined);
   }
   return parts;
 }
@@ -2987,6 +3191,7 @@ function addMinutesToTime(time, minutesToAdd) {
 }
 
 function updateHoursFromTime(row) {
+  if (row.academicHours != null) return;
   const units = lessonUnitsFromTime(row.time);
   if (units === null) return;
 

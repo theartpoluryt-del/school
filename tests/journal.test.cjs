@@ -29,9 +29,55 @@ function fixture() {
     'journalRosterLabel','renderPersonHoursTotal','renderLessonRosterPrintReport','journalTotals',
     'renderJournalTotal','countableRecord','countableStatus','saveLessonMembers','gradeValues','clearLegacyAttendance',
     'journalRosterCandidates','openJournalRoster','saveJournalRoster','resetJournalRoster','setGrade','lessonMemberCheckboxes',
-    'journalPupilEntries','compactJournalClass','compactJournalInstrument','renderJournalEntry','journalSections','compareJournalSubjects','sum'].forEach(n=>load(n,ctx));
+    'journalPupilEntries','compactJournalClass','compactJournalInstrument','renderJournalEntry','journalSections','compareJournalSubjects','sum',
+    'saveJournalTopic','resetJournalHours','journalMonthlyRows'].forEach(n=>load(n,ctx));
   return ctx;
 }
+
+test('choir keeps 55 minutes, 1.5 workload, topics, separate grades and dated hours after regeneration',()=>{
+  const c=subgroupFixture();
+  c.state.schedule[0].time='10:00-10:55';
+  c.state.schedule[0].academicHours=1.5;
+  c.state.schedule[0].pedHours=1.5;
+  c.state.schedule[0].lessonMinutes=55;
+  c.refreshJournalMonth('2026-09','2026-09-15','t');
+  const record=c.state.records.find(r=>r.scheduleId==='wed');
+  assert.equal(record.academicHours,1.5);
+  assert.equal(c.journalLessonRoster(record).personHours,3);
+  record.studentGrades={p1:'5',p2:'4'};
+  c.saveJournalTopic({dataset:{recordId:record.id},elements:{pedHours:{value:'2'},kcHours:{value:'0'},topic:{value:'Работа над дыханием'}}});
+  c.refreshJournalMonth('2026-09','2026-09-15','t');
+  const saved=c.state.records.find(r=>r.id===record.id);
+  assert.equal(saved.topic,'Работа над дыханием');
+  assert.equal(saved.pedHours,2);
+  assert.equal(saved.academicHours,2);
+  assert.equal(saved.time,'10:00-10:55');
+  assert.equal(JSON.stringify(saved.studentGrades),'{"p1":"5","p2":"4"}');
+  c.resetJournalHours(saved.id);
+  assert.equal(saved.academicHours,1.5);
+  assert.equal(saved.topic,'Работа над дыханием');
+  assert.equal(saved.hoursOverride,undefined);
+});
+
+test('monthly choir teacher hours count lessons once, individual subjects remain separate',()=>{
+  const c=subgroupFixture();
+  const rows=[...Array.from({length:8},(_,i)=>({...c.state.records[0],id:'r'+i,date:'2026-09-02',pedHours:1.5,kcHours:0})),
+    {...c.state.records[0],studentId:'p1',participantKind:'student',type:'Дирижирование',pedHours:0.5},
+    {...c.state.records[0],studentId:'p1',participantKind:'student',type:'Постановка голоса',pedHours:1}];
+  const monthly=c.journalMonthlyRows(rows);
+  assert.equal(monthly.length,3);
+  assert.equal(monthly.find(r=>r.subject==='Сценическая речь').hours['2026-09'],12);
+  assert.equal(monthly.find(r=>r.subject==='Дирижирование').hours['2026-09'],0.5);
+});
+
+test('mixed choir pupils display their own choir class, not the band or another instrument class',()=>{
+  const c=subgroupFixture();
+  c.state.groups[0].choirLevel='middle';
+  c.state.students[0].enrollments=[{instrument:'Флейта',className:'7 кл',educationForm:'ДПП'},
+    {program:'Хоровое пение',className:'2 класс · 8-летний срок обучения',educationForm:'ДПП'}];
+  const pupils=c.journalPupilEntries({className:'2–4/8',records:[c.state.records[0]]});
+  assert.equal(pupils[0].className,'2/8');
+});
 function subgroupFixture() {
   const c=fixture();
   const ids=Array.from({length:13},(_,i)=>'p'+(i+1));
