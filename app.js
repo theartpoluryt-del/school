@@ -952,11 +952,11 @@ function openStudentModal() {
 }
 
 function openGroupModal() {
-  if (!isAdmin()) return;
+  if (!canCreateTeachingGroup()) return;
   openModal("Создать группу", `
     <form class="modal-form" data-modal-form="group">
-      <label>Название группы<input type="text" name="name" placeholder="Ансамбль 5 класс" required /></label>
-      <label>ID группы<input type="text" name="externalId" placeholder="автоматически, если оставить пустым" /></label>
+      <label>Название группы<input type="text" name="name" maxlength="200" placeholder="Ансамбль 5 класс" required /></label>
+      ${isAdmin() ? `<label>ID группы<input type="text" name="externalId" placeholder="автоматически, если оставить пустым" /></label>` : `<input type="hidden" name="externalId" value="" /><p class="muted-note">Выберите своих учеников. Группа автоматически появится в вашем расписании.</p>`}
       <label>Класс / пометка<input type="text" name="className" placeholder="анс" /></label>
       <label>Форма обучения<select name="educationForm">${educationFormOptions("ДПП")}</select></label>
       ${studentPicker([])}
@@ -988,23 +988,24 @@ function openAssignStudentModal(studentId) {
 }
 
 function openAssignGroupModal(groupId) {
-  if (!isAdmin()) return;
   const group = state.groups.find((item) => item.id === groupId);
-  if (!group) return;
+  if (!canEditTeachingGroup(group)) return;
   openModal(`Настройка группы: ${escapeHtml(group.name)}`, `
     <form class="modal-form" data-modal-form="assignGroup" data-group-id="${group.id}">
+      <label>Название группы<input name="name" maxlength="200" value="${escapeAttr(group.name)}" required /></label>
+      <p class="muted-note">Изменение состава группы не меняет состав уже созданных занятий. Его можно изменить отдельно в расписании или журнале.</p>
       <label>Форма обучения<select name="educationForm">${educationFormOptions(group.educationForm)}</select></label>
       <div class="assignment-grid">
         <section>
           <h4>Ученики в группе</h4>
           ${group.choirLevel ? choirGroupPicker(group) : studentPicker(group.studentIds || [])}
         </section>
-        <section>
+        ${isAdmin() ? `<section>
           <h4>Преподаватели группы</h4>
           <div class="check-list">
             ${teacherCheckboxes(group.assignedEmployeeIds || [])}
           </div>
-        </section>
+        </section>` : ''}
       </div>
       <button class="primary-button" type="submit">Сохранить</button>
     </form>
@@ -1554,7 +1555,9 @@ function addStudentFromModal(form) {
 }
 
 function addGroupFromModal(form) {
-  if (!isAdmin()) return;
+  if (!canCreateTeachingGroup()) return;
+  const studentIds = selectedStudentIdsFromForm(form);
+  if (!validateTeachingGroupSelection(studentIds)) return;
   const externalId = form.elements.externalId.value.trim() || nextGroupExternalId();
   if (state.groups.some((group) => group.externalId === externalId)) {
     alert("Группа с таким ID уже есть.");
@@ -1567,8 +1570,9 @@ function addGroupFromModal(form) {
     name: form.elements.name.value.trim(),
     className: form.elements.className.value.trim() || "группа",
     educationForm: normalizeEducationForm(form.elements.educationForm.value),
-    studentIds: selectedStudentIdsFromForm(form),
-    assignedEmployeeIds: []
+    studentIds,
+    ...(!isAdmin() ? { ownerEmployeeId: state.sessionEmployeeId } : {}),
+    assignedEmployeeIds: isAdmin() ? [] : [state.sessionEmployeeId]
   });
   closeModal();
   persistAndRender();
@@ -1591,10 +1595,10 @@ function assignStudentFromModal(form) {
 }
 
 function assignGroupFromModal(form) {
-  if (!isAdmin()) return;
   const group = state.groups.find((item) => item.id === form.dataset.groupId);
-  if (!group) return;
+  if (!canEditTeachingGroup(group)) return;
   const selected = selectedStudentIdsFromForm(form);
+  if (!validateTeachingGroupSelection(selected, group)) return;
   if (group.choirLevel) {
     const conflict = state.groups.find(other => !other.isArchived && other.id !== group.id && other.choirLevel === group.choirLevel
       && (other.assignedEmployeeIds || []).some(id => (group.assignedEmployeeIds || []).includes(id))
@@ -1604,11 +1608,9 @@ function assignGroupFromModal(form) {
     if (selected.some(id => !allowed.has(id))) { alert('Выберите учеников соответствующих классов.'); return; }
   }
   group.educationForm = normalizeEducationForm(form.elements.educationForm.value);
-  state.records.filter((record) => record.studentId === group.id).forEach((record) => {
-    record.educationForm = group.educationForm;
-  });
+  if (form.elements.name) group.name = form.elements.name.value.trim() || group.name;
   group.studentIds = selected;
-  group.assignedEmployeeIds = checkedValues(form, "employeeIds");
+  if (isAdmin()) group.assignedEmployeeIds = checkedValues(form, "employeeIds");
   closeModal();
   persistAndRender();
 }
@@ -2684,7 +2686,8 @@ function compareJournalSubjects(first, second) {
 function renderPeople() {
   document.querySelector("#employeeForm").classList.add("is-hidden");
   document.querySelector("#employeesList").closest(".content-panel").classList.toggle("is-hidden", !isAdmin());
-  document.querySelectorAll('[data-action="openStudentModal:add"], [data-action="openGroupModal:add"], [data-action="openEmployeeModal:add"]').forEach((button) => {
+  document.querySelector('[data-action="openGroupModal:add"]')?.classList.toggle('is-hidden', !canCreateTeachingGroup());
+  document.querySelectorAll('[data-action="openStudentModal:add"], [data-action="openEmployeeModal:add"]').forEach((button) => {
     button.classList.toggle("is-hidden", !isAdmin());
   });
 
@@ -2768,6 +2771,7 @@ function renderPeople() {
       </div>
       <footer>
         <span class="tag">\u0413\u0440\u0443\u043f\u043f\u0430</span>
+        ${!isAdmin() && canEditTeachingGroup(group) ? `<button class="mini-button" type="button" data-action="assignGroup:${group.id}">Настроить</button>` : ''}
         ${isAdmin() ? `<span class="card-actions"><button class="mini-button" type="button" data-action="assignGroup:${group.id}">\u041d\u0430\u0441\u0442\u0440\u043e\u0438\u0442\u044c</button><button class="danger-button" type="button" data-action="deleteGroup:${group.id}">\u0423\u0434\u0430\u043b\u0438\u0442\u044c</button></span>` : ""}
       </footer>
     </article>
@@ -2992,6 +2996,29 @@ function visibleGroups() {
     return state.groups.filter((group) => !group.isArchived && (group.assignedEmployeeIds || []).includes(state.activeEmployeeId));
   }
   return state.groups.filter((group) => !group.isArchived && (group.assignedEmployeeIds || []).includes(state.sessionEmployeeId));
+}
+
+function canCreateTeachingGroup() {
+  return !!currentUser() && (isAdmin() || state.teacherGroupsEnabled === true);
+}
+
+function canEditTeachingGroup(group) {
+  return !!group && canCreateTeachingGroup() && (isAdmin() || (
+    group.ownerEmployeeId === state.sessionEmployeeId && !group.isArchived &&
+    group.assignedEmployeeIds?.length === 1 && group.assignedEmployeeIds[0] === state.sessionEmployeeId
+  ));
+}
+
+function validateTeachingGroupSelection(ids, group) {
+  if (isAdmin()) return true;
+  const allowed = new Set(visibleStudents().map(student => student.id));
+  // Existing members may remain after leaving the teacher; no new access is granted.
+  (group?.studentIds || []).forEach(id => allowed.add(id));
+  if (!ids.length || ids.some(id => !allowed.has(id))) {
+    alert('Выберите хотя бы одного ученика из своего списка.');
+    return false;
+  }
+  return true;
 }
 
 function visibleParticipants() {
@@ -3296,6 +3323,7 @@ function renderStudentPickerResults(picker) {
 
   const matches = state.students
     .filter((student) => !student.isArchived)
+    .filter((student) => isAdmin() || (student.assignedEmployeeIds || []).includes(state.sessionEmployeeId))
     .filter((student) => normalizeText(student.name).includes(query))
     .sort((a, b) => a.name.localeCompare(b.name, "ru"))
     .slice(0, 20);
