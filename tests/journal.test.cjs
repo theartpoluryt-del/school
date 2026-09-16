@@ -30,12 +30,34 @@ function fixture() {
     'renderJournalTotal','countableRecord','countableStatus','saveLessonMembers','gradeValues','clearLegacyAttendance',
     'journalRosterCandidates','openJournalRoster','saveJournalRoster','resetJournalRoster','setGrade','lessonMemberCheckboxes',
     'journalPupilEntries','compactJournalClass','compactJournalInstrument','renderJournalEntry','journalSections','compareJournalSubjects','sum',
-    'saveJournalTopic','resetJournalHours','journalMonthlyRows'].forEach(n=>load(n,ctx));
+    'journalHasTopic','saveJournalTopic','resetJournalHours','journalMonthlyRows'].forEach(n=>load(n,ctx));
   return ctx;
 }
 
+test('topics apply only to lessons with at least eight roster members',()=>{
+  const c=fixture();
+  for (const n of [1,2,7,8,13]) {
+    const r={id:'r',employeeId:'t',studentId:'g',participantKind:'group',participantIds:Array.from({length:n},(_,i)=>'p'+i),pedHours:1,kcHours:0};
+    c.state.records=[r];
+    assert.equal(c.journalHasTopic(r),n>=8);
+    c.saveJournalTopic({dataset:{recordId:'r'},elements:{pedHours:{value:'1'},kcHours:{value:'0'},topic:{value:'Тема'}}});
+    assert.equal(r.topic,n>=8?'Тема':'');
+  }
+});
+
+test('old archived timetable without a roster cannot erase a saved small-group lesson',()=>{
+  const c=subgroupFixture();
+  c.state.schedule.forEach(r=>{r.archiveId='archive';delete r.participantIds;});
+  c.state.groups[0].studentIds=[];
+  const before=JSON.stringify(c.state.records.map(r=>({id:r.id,ids:r.participantIds})));
+  c.refreshJournalMonth('2026-09','2026-09-15','t');
+  assert.equal(JSON.stringify(c.state.records.map(r=>({id:r.id,ids:r.participantIds}))),before);
+  assert.ok(c.state.records.every(r=>c.journalLessonRoster(r).participantIds.length>0));
+});
+
 test('choir keeps 55 minutes, 1.5 workload, topics, separate grades and dated hours after regeneration',()=>{
   const c=subgroupFixture();
+  c.state.schedule[0].participantIds=Array.from({length:8},(_,i)=>'p'+(i+1));
   c.state.schedule[0].time='10:00-10:55';
   c.state.schedule[0].academicHours=1.5;
   c.state.schedule[0].pedHours=1.5;
@@ -43,7 +65,7 @@ test('choir keeps 55 minutes, 1.5 workload, topics, separate grades and dated ho
   c.refreshJournalMonth('2026-09','2026-09-15','t');
   const record=c.state.records.find(r=>r.scheduleId==='wed');
   assert.equal(record.academicHours,1.5);
-  assert.equal(c.journalLessonRoster(record).personHours,3);
+  assert.equal(c.journalLessonRoster(record).personHours,12);
   record.studentGrades={p1:'5',p2:'4'};
   c.saveJournalTopic({dataset:{recordId:record.id},elements:{pedHours:{value:'2'},kcHours:{value:'0'},topic:{value:'Работа над дыханием'}}});
   c.refreshJournalMonth('2026-09','2026-09-15','t');

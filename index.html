@@ -82,6 +82,7 @@
           </div>
           <div class="top-actions">
             <span class="sync-status" id="syncStatus" role="status" aria-live="polite"></span>
+            <button type="button" class="ghost-button is-hidden" id="retryCloudSave">Повторить сохранение</button>
             <button class="ghost-button admin-data-action" type="button" id="exportData">Экспорт данных</button>
             <button class="ghost-button admin-data-action" type="button" id="importData">Импорт данных</button>
             <button class="ghost-button" type="button" id="logoutButton">&#1042;&#1099;&#1081;&#1090;&#1080;</button>
@@ -326,7 +327,8 @@
     <script src="supabase-config.js"></script>
   <script src="school-model.js?v=20260913-2"></script>
   <script src="paid-model.js?v=20260913-1"></script>
-  <script src="app.js?v=20260915-1"></script>
+  <script src="sync-model.js?v=20260916-1"></script>
+  <script src="app.js?v=20260916-1"></script>
   <script src="paid-journal.js?v=20260913-1"></script>
   </body>
 </html>

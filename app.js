@@ -9,6 +9,10 @@ let secureCloudMode = false;
 let cloudSaveTimer = null;
 let cloudSaveInFlight = false;
 let cloudSaveQueued = false;
+let cloudDirty = false;
+let cloudBaseline = null;
+let cloudSavePromise = null;
+let cloudRevision = 0;
 let profileLoadError = null;
 let currentProfile = null;
 let modalReturnFocus = null;
@@ -130,7 +134,9 @@ document.querySelector("#studentForm").addEventListener("submit", addStudent);
 document.querySelector("#employeeForm").addEventListener("submit", addEmployee);
 document.querySelector("#holidayForm").addEventListener("submit", addHoliday);
 document.querySelector("#generateJournal").addEventListener("click", generateSelectedMonth);
-document.querySelector("#printJournal").addEventListener("click", () => window.print());
+document.querySelector("#printJournal").addEventListener("click", async () => { if (await ensureCloudSaved()) window.print(); });
+document.querySelector('#retryCloudSave')?.addEventListener('click', () => flushCloudSave());
+window.addEventListener('online', () => { if (cloudDirty) flushCloudSave(); });
 document.querySelector('#journalInstrument').addEventListener('change', renderJournal);
 document.querySelector('#journalSubject').addEventListener('change', renderJournal);
 document.querySelector('#journalGroup').addEventListener('change', renderJournal);
@@ -339,7 +345,7 @@ document.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("beforeunload", (event) => {
-  if (!cloudSaveTimer && !cloudSaveInFlight && !cloudSaveQueued) return;
+  if (!cloudDirty && !cloudSaveTimer && !cloudSaveInFlight && !cloudSaveQueued) return;
   event.preventDefault();
   event.returnValue = "";
 });
@@ -575,6 +581,8 @@ async function loadCloudState() {
   const secureResult = await supabaseClient.rpc("get_school_context");
   if (!secureResult.error && secureResult.data?.payload) {
     state = migrateState(secureResult.data.payload);
+    cloudBaseline = cloudPayload();
+    cloudDirty = false;
     cloudStateId = secureResult.data.id;
     cloudStateVersion = secureResult.data.updated_at;
     secureCloudMode = true;
@@ -639,56 +647,82 @@ async function loadCurrentProfile(userId) {
 
 function queueCloudSave() {
   if (!supabaseClient || !cloudReady || !cloudStateId) return;
+  cloudDirty = true;
+  cloudRevision += 1;
   setSyncStatus("Изменения ожидают сохранения…", "pending");
   window.clearTimeout(cloudSaveTimer);
   cloudSaveTimer = window.setTimeout(flushCloudSave, 450);
 }
 
 async function flushCloudSave() {
+  window.clearTimeout(cloudSaveTimer);
   cloudSaveTimer = null;
-  if (cloudSaveInFlight) {
-    cloudSaveQueued = true;
-    return;
-  }
+  if (cloudSavePromise) return cloudSavePromise;
+  if (!cloudDirty) return true;
+  if (!supabaseClient || !cloudReady) return false;
+  cloudSavePromise = saveCloudChanges();
+  try { return await cloudSavePromise; }
+  finally { cloudSavePromise = null; }
+}
 
+async function saveCloudChanges() {
   cloudSaveInFlight = true;
-  cloudSaveQueued = false;
   setSyncStatus("Сохраняем…", "pending");
   try {
+    for (let attempt=0; attempt<5 && cloudDirty; attempt++) {
+    const sent=cloudPayload(), revision=cloudRevision;
     if (secureCloudMode) {
       const { data, error } = await supabaseClient.rpc("save_school_context", {
-        new_payload: cloudPayload(),
+        new_payload: sent,
         expected_updated_at: cloudStateVersion || null
       });
       if (error) {
         console.warn("Secure Supabase state save failed", error.message);
-        setSyncStatus("Не удалось сохранить", "error");
         if (["PT409", "40001"].includes(error.code)) {
-          alert("Данные уже изменены другим сотрудником. Загружена актуальная версия; повторите последнее действие.");
-          await loadCloudState();
+          const latest=await supabaseClient.rpc('get_school_context');
+          if (latest.error || !latest.data?.payload || !cloudBaseline) throw new Error('Не удалось согласовать изменения.');
+          const remote=migrateState(latest.data.payload);
+          const session=state.sessionEmployeeId;
+          state=SchoolSync.payload(cloudBaseline,state,remote);
+          state.sessionEmployeeId=session;
+          cloudBaseline=structuredClone(remote);
+          cloudStateVersion=latest.data.updated_at;
           render();
+          continue;
         }
-        return;
+        throw new Error(error.message || 'Сервер отклонил сохранение.');
       }
       cloudStateVersion = data.updated_at;
-      setSyncStatus(`Сохранено в ${currentTimeLabel()}`, "saved");
-      return;
-    }
-
+    } else {
     const { error } = await supabaseClient
       .from("school_state")
-      .update({ payload: cloudPayload() })
+      .update({ payload: sent })
       .eq("id", cloudStateId);
-    if (error) {
-      console.warn("Supabase state save failed", error.message);
-      setSyncStatus("Не удалось сохранить", "error");
-      return;
+    if (error) throw new Error(error.message);
     }
+    cloudBaseline=sent;
+    cloudDirty=cloudRevision!==revision;
+    }
+    if (cloudDirty) throw new Error('Есть новые изменения. Нажмите «Повторить сохранение».');
     setSyncStatus(`Сохранено в ${currentTimeLabel()}`, "saved");
+    return true;
+  } catch(error) {
+    console.warn('School save failed', error.message);
+    setSyncStatus('Не сохранено. Не закрывайте страницу. ' + error.message, 'error');
+    return false;
   } finally {
     cloudSaveInFlight = false;
-    if (cloudSaveQueued) window.setTimeout(flushCloudSave, 0);
   }
+}
+
+async function ensureCloudSaved() {
+  if (!supabaseClient) return true;
+  const saved=await flushCloudSave();
+  if (!saved || cloudDirty) {
+    alert('Изменения ещё не сохранены на сервере. Оставьте страницу открытой и нажмите «Повторить сохранение».');
+    return false;
+  }
+  return true;
 }
 
 function setSyncStatus(message, kind) {
@@ -696,6 +730,7 @@ function setSyncStatus(message, kind) {
   if (!status) return;
   status.textContent = message;
   status.dataset.kind = kind;
+  document.querySelector('#retryCloudSave')?.classList.toggle('is-hidden', kind !== 'error');
 }
 
 function currentTimeLabel() {
@@ -845,6 +880,7 @@ async function login(event) {
 }
 
 async function logout() {
+  if (!(await ensureCloudSaved())) return;
   if (supabaseClient) await supabaseClient.auth.signOut();
   state = createDemoData();
   currentProfile = null;
@@ -1181,7 +1217,7 @@ function journalLessonRoster(record) {
   const row = state.schedule.find(r => r.id === record.scheduleId && r.employeeId === record.employeeId && r.studentId === record.studentId);
   // An explicit subgroup on this exact schedule row overrides stale journal snapshots.
   // Never look up a different row merely because it belongs to the same group.
-  const source = record.rosterOverride === true && Array.isArray(record.participantIds) ? record
+  const source = (record.rosterOverride === true || row?.archiveId) && Array.isArray(record.participantIds) ? record
     : row && Array.isArray(row.participantIds) ? row : Array.isArray(record.participantIds) ? record : row || record;
   const snapshot = snapshotLessonMembers(source);
   const participantIds = SchoolModel.memberIds(snapshot);
@@ -1977,7 +2013,7 @@ function refreshJournalMonth(month, asOf, employeeId) {
       clearLegacyAttendance(previousLesson);
       state.records.push({
         ...previousLesson,
-        ...snapshotLessonMembers(previous?.rosterOverride === true && Array.isArray(previous.participantIds) ? previous : row),
+        ...snapshotLessonMembers((previous?.rosterOverride === true || row.archiveId || !Array.isArray(row.participantIds)) && Array.isArray(previous?.participantIds) ? previous : row),
         id: previous?.id || createId(),
         employeeId: row.employeeId,
         scheduleId: row.id,
@@ -2316,7 +2352,8 @@ function renderSchedulePrintRow(row) {
   `;
 }
 
-function printSchedule() {
+async function printSchedule() {
+  if (!(await ensureCloudSaved())) return;
   document.body.classList.add("printing-schedule");
   window.print();
 }
@@ -2369,12 +2406,16 @@ function refreshJournalFilter(selector, placeholder, entries) {
   return select.value;
 }
 
+function journalHasTopic(record) {
+  return journalLessonRoster(record).participantIds.length >= 8;
+}
+
 function openJournalTopic(id) {
   const record = state.records.find(r => r.id === id && r.employeeId === state.activeEmployeeId);
   if (!record) return;
-  openModal('Тема и часы занятия', `<form class="modal-form" data-modal-form="journalTopic" data-record-id="${escapeAttr(id)}">
+  openModal(journalHasTopic(record) ? 'Тема и часы занятия' : 'Часы занятия', `<form class="modal-form" data-modal-form="journalTopic" data-record-id="${escapeAttr(id)}">
     <p>${formatDate(record.date)} · ${escapeHtml(record.time)} · ${escapeHtml(record.studentName || studentName(record.studentId))} · ${escapeHtml(SchoolModel.subjectLabel(record))}</p>
-    <label>Тема / содержание урока<textarea name="topic" rows="4" maxlength="2000">${escapeHtml(record.topic || '')}</textarea></label>
+    ${journalHasTopic(record) ? `<label>Тема / содержание урока<textarea name="topic" rows="4" maxlength="2000">${escapeHtml(record.topic || '')}</textarea></label>` : ''}
     <div class="form-grid two"><label>Пед.<input name="pedHours" type="number" min="0" max="24" step="0.25" required value="${Number(record.pedHours || 0)}" /></label>
     <label>Кц<input name="kcHours" type="number" min="0" max="24" step="0.25" required value="${Number(record.kcHours || 0)}" /></label></div>
     <p class="muted-note">Изменение часов действует только на эту дату, в том числе прошлую. За групповое занятие часы преподавателя считаются один раз. Тема и оценки сохраняются при обновлении журнала.</p>
@@ -2386,7 +2427,7 @@ function saveJournalTopic(form) {
   const record = state.records.find(r => r.id === form.dataset.recordId && r.employeeId === state.activeEmployeeId);
   if (!record) return;
   const ped = Number(form.elements.pedHours.value), kc = Number(form.elements.kcHours.value);
-  const topic = form.elements.topic.value.trim();
+  const topic = journalHasTopic(record) ? (form.elements.topic?.value || '').trim() : (record.topic || '');
   if (!Number.isFinite(ped) || !Number.isFinite(kc) || ped < 0 || kc < 0 || ped + kc > 24 || topic.length > 2000) {
     alert('Проверьте часы (от 0 до 24) и длину темы (до 2000 символов).'); return;
   }
@@ -2431,10 +2472,11 @@ function renderJournalDetails(records, month) {
   const yearRecords = employeeRecords().filter(r => months.includes(r.date.slice(0,7)) && (!instrument || r.instrument === instrument) && (!subject || r.type === subject) && (!group || r.studentId === group));
   const monthly = journalMonthlyRows(yearRecords);
   const heading = [monthLabel(month), subject, group ? studentName(group) : '', instrument].filter(Boolean).map(escapeHtml).join(' · ');
-  return `<section class="journal-detail-section"><h3>Темы и часы · ${heading}</h3>
-    <div class="journal-detail-scroll"><table class="journal-detail-table"><thead><tr><th>Дата</th><th>Время</th><th>Группа / ученик · предмет</th><th>Пед.</th><th>Кц</th><th>Тема урока</th><th class="journal-edit-column"></th></tr></thead><tbody>${sorted.map(r => `<tr>
+  const hasTopics = sorted.some(journalHasTopic);
+  return `<section class="journal-detail-section"><h3>${hasTopics ? 'Темы и часы' : 'Часы занятий'} · ${heading}</h3>
+    <div class="journal-detail-scroll"><table class="journal-detail-table"><thead><tr><th>Дата</th><th>Время</th><th>Группа / ученик · предмет</th><th>Пед.</th><th>Кц</th>${hasTopics ? '<th>Тема урока</th>' : ''}<th class="journal-edit-column"></th></tr></thead><tbody>${sorted.map(r => `<tr>
       <td>${formatDate(r.date)}</td><td>${escapeHtml(r.time || '')}</td><td>${escapeHtml(r.studentName || studentName(r.studentId))}<small>${escapeHtml(SchoolModel.subjectLabel(r))} · ${escapeHtml(compactJournalClass(r.className))}</small></td>
-      <td>${formatNumber(r.pedHours)}</td><td>${formatNumber(r.kcHours)}</td><td class="journal-topic-text">${escapeHtml(r.topic || '—')}</td><td class="journal-edit-column"><button class="ghost-button" type="button" data-action="journalTopic:${escapeAttr(r.id)}" aria-label="Тема и часы ${escapeAttr(r.studentName || studentName(r.studentId))} ${escapeAttr(r.date)} ${escapeAttr(r.time || '')}">Заполнить</button></td></tr>`).join('')}</tbody></table></div></section>
+      <td>${formatNumber(r.pedHours)}</td><td>${formatNumber(r.kcHours)}</td>${hasTopics ? `<td class="journal-topic-text">${journalHasTopic(r) ? escapeHtml(r.topic || '—') : ''}</td>` : ''}<td class="journal-edit-column"><button class="ghost-button" type="button" data-action="journalTopic:${escapeAttr(r.id)}" aria-label="${journalHasTopic(r) ? 'Тема и часы' : 'Часы'} ${escapeAttr(r.studentName || studentName(r.studentId))} ${escapeAttr(r.date)} ${escapeAttr(r.time || '')}">${journalHasTopic(r) ? 'Заполнить' : 'Часы'}</button></td></tr>`).join('')}</tbody></table></div></section>
     <section class="journal-detail-section journal-monthly-section"><h3>Часы по месяцам · ${year}/${year+1}</h3><p class="muted-note">По сформированным журналам, за полные месяцы, включая будущие занятия. «—» — нет занятий в журнале. Групповые часы не умножаются на число детей.</p>
     <div class="journal-detail-scroll"><table class="journal-detail-table"><thead><tr><th>Группа / ученик · предмет</th>${months.map(m => `<th>${escapeHtml(monthLabel(m))}</th>`).join('')}<th>Всего</th></tr></thead><tbody>${monthly.map(row => `<tr><td>${escapeHtml(row.name)}<small>${escapeHtml(row.subject)} · ${escapeHtml(compactJournalClass(row.className))}</small></td>${months.map(m => `<td>${Object.hasOwn(row.hours,m) ? formatNumber(row.hours[m]) : '—'}</td>`).join('')}<td>${formatNumber(Object.values(row.hours).reduce((a,b) => a+b,0))}</td></tr>`).join('')}</tbody><tfoot><tr><th>Итого, Пед. + Кц</th>${months.map(m => `<th>${monthly.some(r => Object.hasOwn(r.hours,m)) ? formatNumber(monthly.reduce((total,r) => total+(r.hours[m] || 0),0)) : '—'}</th>`).join('')}<th>${formatNumber(monthly.reduce((total,r) => total + Object.values(r.hours).reduce((a,b) => a+b,0),0))}</th></tr></tfoot></table></div></section>`;
 }
