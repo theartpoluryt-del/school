@@ -345,7 +345,7 @@ document.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("beforeunload", (event) => {
-  if (!cloudDirty && !cloudSaveTimer && !cloudSaveInFlight && !cloudSaveQueued) return;
+  if (!cloudDirty && !cloudSaveTimer && !cloudSaveInFlight && !cloudSaveQueued && !globalThis.AbsenceJournal?.isBusy()) return;
   event.preventDefault();
   event.returnValue = "";
 });
@@ -478,6 +478,7 @@ function persistAndRender() {
 
 function cloudPayload() {
   const payload = structuredClone(state);
+  for (const key of ['absenceRows','substituteTeachers','absencesEnabled']) delete payload[key];
   payload.sessionEmployeeId = "";
   payload.employees.forEach((employee) => delete employee.password);
   return payload;
@@ -655,6 +656,7 @@ function queueCloudSave() {
 }
 
 async function flushCloudSave() {
+  if (globalThis.AbsenceJournal?.isBusy()) return false;
   window.clearTimeout(cloudSaveTimer);
   cloudSaveTimer = null;
   if (cloudSavePromise) return cloudSavePromise;
@@ -716,6 +718,10 @@ async function saveCloudChanges() {
 }
 
 async function ensureCloudSaved() {
+  if (globalThis.AbsenceJournal?.isBusy()) {
+    alert('Дождитесь сохранения замещения.');
+    return false;
+  }
   if (!supabaseClient) return true;
   const saved=await flushCloudSave();
   if (!saved || cloudDirty) {
@@ -1947,6 +1953,8 @@ function deleteEmployee(id) {
 }
 
 function setGrade(id, value, memberId) {
+  if (globalThis.AbsenceJournal?.find(id)) { void globalThis.AbsenceJournal.grade(id,value,memberId); return; }
+  if (globalThis.AbsenceJournal?.isAbsent(id)) return;
   const record = state.records.find(item => item.id === id && item.employeeId === state.activeEmployeeId);
   if (!record || !gradeValues().includes(value)) return;
   const roster = journalLessonRoster(record);
@@ -2411,6 +2419,8 @@ function journalHasTopic(record) {
 }
 
 function openJournalTopic(id) {
+  if (globalThis.AbsenceJournal?.find(id)) { globalThis.AbsenceJournal.topic(id); return; }
+  if (globalThis.AbsenceJournal?.isAbsent(id)) return;
   const record = state.records.find(r => r.id === id && r.employeeId === state.activeEmployeeId);
   if (!record) return;
   openModal(journalHasTopic(record) ? 'Тема и часы занятия' : 'Часы занятия', `<form class="modal-form" data-modal-form="journalTopic" data-record-id="${escapeAttr(id)}">
@@ -2476,12 +2486,13 @@ function renderJournalDetails(records, month) {
   return `<section class="journal-detail-section"><h3>${hasTopics ? 'Темы и часы' : 'Часы занятий'} · ${heading}</h3>
     <div class="journal-detail-scroll"><table class="journal-detail-table"><thead><tr><th>Дата</th><th>Время</th><th>Группа / ученик · предмет</th><th>Пед.</th><th>Кц</th>${hasTopics ? '<th>Тема урока</th>' : ''}<th class="journal-edit-column"></th></tr></thead><tbody>${sorted.map(r => `<tr>
       <td>${formatDate(r.date)}</td><td>${escapeHtml(r.time || '')}</td><td>${escapeHtml(r.studentName || studentName(r.studentId))}<small>${escapeHtml(SchoolModel.subjectLabel(r))} · ${escapeHtml(compactJournalClass(r.className))}</small></td>
-      <td>${formatNumber(r.pedHours)}</td><td>${formatNumber(r.kcHours)}</td>${hasTopics ? `<td class="journal-topic-text">${journalHasTopic(r) ? escapeHtml(r.topic || '—') : ''}</td>` : ''}<td class="journal-edit-column"><button class="ghost-button" type="button" data-action="journalTopic:${escapeAttr(r.id)}" aria-label="${journalHasTopic(r) ? 'Тема и часы' : 'Часы'} ${escapeAttr(r.studentName || studentName(r.studentId))} ${escapeAttr(r.date)} ${escapeAttr(r.time || '')}">${journalHasTopic(r) ? 'Заполнить' : 'Часы'}</button></td></tr>`).join('')}</tbody></table></div></section>
+      <td>${formatNumber(r.pedHours)}</td><td>${formatNumber(r.kcHours)}</td>${hasTopics ? `<td class="journal-topic-text">${journalHasTopic(r) ? escapeHtml(r.topic || '—') : ''}</td>` : ''}<td class="journal-edit-column">${r.status==='absent' ? escapeHtml(r.absenceLabel || 'Отсутствие') : `<button class="ghost-button" type="button" data-action="journalTopic:${escapeAttr(r.id)}" aria-label="${journalHasTopic(r) ? 'Тема и часы' : 'Часы'} ${escapeAttr(r.studentName || studentName(r.studentId))} ${escapeAttr(r.date)} ${escapeAttr(r.time || '')}">${journalHasTopic(r) ? 'Заполнить' : 'Часы'}</button>`}</td></tr>`).join('')}</tbody></table></div></section>
     <section class="journal-detail-section journal-monthly-section"><h3>Часы по месяцам · ${year}/${year+1}</h3><p class="muted-note">По сформированным журналам, за полные месяцы, включая будущие занятия. «—» — нет занятий в журнале. Групповые часы не умножаются на число детей.</p>
     <div class="journal-detail-scroll"><table class="journal-detail-table"><thead><tr><th>Группа / ученик · предмет</th>${months.map(m => `<th>${escapeHtml(monthLabel(m))}</th>`).join('')}<th>Всего</th></tr></thead><tbody>${monthly.map(row => `<tr><td>${escapeHtml(row.name)}<small>${escapeHtml(row.subject)} · ${escapeHtml(compactJournalClass(row.className))}</small></td>${months.map(m => `<td>${Object.hasOwn(row.hours,m) ? formatNumber(row.hours[m]) : '—'}</td>`).join('')}<td>${formatNumber(Object.values(row.hours).reduce((a,b) => a+b,0))}</td></tr>`).join('')}</tbody><tfoot><tr><th>Итого, Пед. + Кц</th>${months.map(m => `<th>${monthly.some(r => Object.hasOwn(r.hours,m)) ? formatNumber(monthly.reduce((total,r) => total+(r.hours[m] || 0),0)) : '—'}</th>`).join('')}<th>${formatNumber(monthly.reduce((total,r) => total + Object.values(r.hours).reduce((a,b) => a+b,0),0))}</th></tr></tfoot></table></div></section>`;
 }
 
 function renderJournal() {
+  globalThis.AbsenceJournal?.renderPanel();
   const month = document.querySelector("#journalMonth").value;
   const monthRecords = employeeRecords().filter((record) => record.date.startsWith(month) && !isHoliday(record.date));
   const filter = document.querySelector('#journalInstrument');
@@ -2492,7 +2503,7 @@ function renderJournal() {
   const instrumentRecords = monthRecords.filter(r => !filter.value || r.instrument === filter.value);
   const subject = refreshJournalFilter('#journalSubject', 'Все предметы', instrumentRecords.map(r => [r.type, r.type]));
   const subjectRecords = instrumentRecords.filter(r => !subject || r.type === subject);
-  const group = refreshJournalFilter('#journalGroup', 'Все группы и ученики', subjectRecords.filter(r => state.groups.some(g => g.id === r.studentId)).map(r => [r.studentId, r.studentName || studentName(r.studentId)]));
+  const group = refreshJournalFilter('#journalGroup', 'Все группы и ученики', subjectRecords.filter(r => r.participantKind==='group' || state.groups.some(g => g.id === r.studentId)).map(r => [r.studentId, r.studentName || studentName(r.studentId)]));
   const records = subjectRecords.filter(r => !group || r.studentId === group);
   const dates = uniqueRecordDates(records);
 
@@ -2648,6 +2659,7 @@ function renderJournalCell(entry, date) {
   if (!dayRecords.length) return "<td></td>";
 
   const buttons = dayRecords.map((record) => {
+    if (record.status === 'absent') return `<span class="absence-mark" title="${escapeAttr(record.absenceLabel || 'Отсутствие')}">—</span>`;
     const schedule = state.schedule.find((row) => row.id === record.scheduleId);
     const room = record.room || schedule?.room || '';
     const details = [record.time, room ? `каб. ${room}` : '', `Пед. ${formatNumber(record.pedHours)}`, `Кц ${formatNumber(record.kcHours)}`]
@@ -2661,7 +2673,7 @@ function renderJournalCell(entry, date) {
         <details class="journal-roster-details">
           <summary aria-label="Состав ${escapeAttr(entry.name)} за ${escapeAttr(date)}: ${escapeAttr(rosterLabel)}" title="${escapeAttr([details, 'Нажмите, чтобы исправить состав'].filter(Boolean).join(' · '))}">${escapeHtml(rosterLabel)}</summary>
           <div class="journal-roster-options">
-            <button type="button" class="journal-roster-edit" data-action="journalRoster:${escapeAttr(record.id)}" aria-label="Исправить состав ${escapeAttr(entry.name)} за ${escapeAttr(date)}">Исправить состав</button>
+            ${record.isSubstitution ? '<small>Состав из листа замещения</small>' : `<button type="button" class="journal-roster-edit" data-action="journalRoster:${escapeAttr(record.id)}" aria-label="Исправить состав ${escapeAttr(entry.name)} за ${escapeAttr(date)}">Исправить состав</button>`}
             ${legacyGrade ? `<small class="legacy-group-grade">${escapeHtml(legacyGrade)}</small>` : ''}
           </div>
         </details>
@@ -2997,7 +3009,8 @@ function employeeScheduleHistory() {
 }
 
 function employeeRecords() {
-  return state.records.filter((record) => record.employeeId === state.activeEmployeeId);
+  const records = state.records.filter((record) => record.employeeId === state.activeEmployeeId);
+  return globalThis.AbsenceJournal ? globalThis.AbsenceJournal.projected(state.activeEmployeeId,records) : records;
 }
 
 function activeEmployee() {

@@ -7,7 +7,7 @@
     <link rel="icon" href="assets/favicon.ico?v=20260901-4" sizes="any" />
     <link rel="icon" href="assets/favicon.png?v=20260901-4" type="image/png" sizes="64x64" />
     <link rel="apple-touch-icon" href="assets/school-journal-logo.png?v=20260901-4" />
-    <link rel="stylesheet" href="styles.css?v=20260913-3" />
+    <link rel="stylesheet" href="styles.css?v=20260916-2" />
   </head>
   <body>
     <section class="login-screen" id="loginScreen">
@@ -141,6 +141,7 @@
               <label>Группа<select id="journalGroup"><option value="">Все группы и ученики</option></select></label>
               <button class="ghost-button" type="button" id="printJournal">Печать</button>
             </div>
+            <div id="absencePanel"></div>
             <div class="journal-scroll" id="journalMatrix"></div>
             <div id="journalDetails"></div>
           </div>
@@ -327,8 +328,9 @@
     <script src="supabase-config.js"></script>
   <script src="school-model.js?v=20260913-2"></script>
   <script src="paid-model.js?v=20260913-1"></script>
-  <script src="sync-model.js?v=20260916-1"></script>
-  <script src="app.js?v=20260916-1"></script>
+  <script src="sync-model.js?v=20260916-2"></script>
+  <script src="absence-journal.js?v=20260916-2"></script>
+  <script src="app.js?v=20260916-2"></script>
   <script src="paid-journal.js?v=20260913-1"></script>
   </body>
 </html>

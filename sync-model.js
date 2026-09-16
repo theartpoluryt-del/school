@@ -21,9 +21,10 @@
     throw new Error(`Одно и то же поле изменено в двух сеансах: ${path}`);
   }
   function payload(base,local,remote) {
-    const clean=x=>{const copy=structuredClone(x); for(const key of ['sessionEmployeeId','activeEmployeeId','teacherGroupsEnabled']) delete copy[key]; return copy;};
+    const serverKeys=['teacherGroupsEnabled','absencesEnabled','absenceRows','substituteTeachers'];
+    const clean=x=>{const copy=structuredClone(x); for(const key of ['sessionEmployeeId','activeEmployeeId',...serverKeys]) delete copy[key]; return copy;};
     return {...merge(clean(base),clean(local),clean(remote)), sessionEmployeeId:local.sessionEmployeeId,
-      activeEmployeeId:local.activeEmployeeId,teacherGroupsEnabled:remote.teacherGroupsEnabled};
+      activeEmployeeId:local.activeEmployeeId,...Object.fromEntries(serverKeys.map(key=>[key,remote[key]]))};
   }
   const api={merge,payload};
   if(typeof module!=='undefined' && module.exports) module.exports=api; else root.SchoolSync=api;

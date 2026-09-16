@@ -1786,7 +1786,17 @@ th {
 .journal-monthly-section th:not(:first-child), .journal-monthly-section td:not(:first-child) { text-align: center; }
 .journal-monthly-section th:first-child { min-width: 200px; }
 
+.substitution-sheet { display: none; }
+.absence-saving .app-shell, .absence-saving .modal { pointer-events: none; }
+.absence-saving { cursor: progress; }
+#absencePanel { margin-top: 16px; }
+.absence-mark { color: #78838a; }
 @media print {
+  .no-print { display: none !important; }
+  body.printing-substitutions .tab-view { display: none !important; }
+  body.printing-substitutions #journalView { display: block !important; }
+  body.printing-substitutions #journalView > .content-panel > :not(#absencePanel) { display: none !important; }
+  body.printing-substitutions .substitution-sheet { display: block; }
   .journal-detail-scroll { overflow: visible; max-height: none; }
   .journal-detail-section { break-before: page; }
   .journal-detail-section h3 { font-size: 12px; }
