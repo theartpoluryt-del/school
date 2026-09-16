@@ -135,8 +135,10 @@ document.querySelector("#employeeForm").addEventListener("submit", addEmployee);
 document.querySelector("#holidayForm").addEventListener("submit", addHoliday);
 document.querySelector("#generateJournal").addEventListener("click", generateSelectedMonth);
 document.querySelector("#printJournal").addEventListener("click", () => printJournalSection('matrix'));
-document.querySelector("#printJournalTopics").addEventListener("click", () => printJournalSection('topics'));
-document.querySelector("#printJournalMonthly").addEventListener("click", () => printJournalSection('monthly'));
+document.querySelector('#journalDetails').addEventListener('click', (event) => {
+  const button = event.target.closest('[data-journal-print-section]');
+  if (button) void printJournalSection(button.dataset.journalPrintSection);
+});
 window.addEventListener('afterprint', () => { delete document.body.dataset.journalPrint; });
 document.querySelector('#retryCloudSave')?.addEventListener('click', () => flushCloudSave());
 window.addEventListener('online', () => { if (cloudDirty) flushCloudSave(); });
@@ -2494,11 +2496,11 @@ function renderJournalDetails(records, month) {
   const monthly = journalMonthlyRows(yearRecords);
   const heading = [monthLabel(month), subject, group ? studentName(group) : '', instrument].filter(Boolean).map(escapeHtml).join(' · ');
   const hasTopics = sorted.some(journalHasTopic);
-  return `<section class="journal-detail-section journal-topics-section"><h3>${hasTopics ? 'Темы и часы' : 'Часы занятий'} · ${heading}</h3>
+  return `<section class="journal-detail-section journal-topics-section"><div class="journal-section-heading"><h3>${hasTopics ? 'Темы и часы' : 'Часы занятий'} · ${heading}</h3><button class="ghost-button no-print" type="button" id="printJournalTopics" data-journal-print-section="topics">Печать тем и часов</button></div>
     <div class="journal-detail-scroll"><table class="journal-detail-table"><thead><tr><th>Дата</th><th>Время</th><th>Группа / ученик · предмет</th><th>Пед.</th><th>Кц</th>${hasTopics ? '<th>Тема урока</th>' : ''}<th class="journal-edit-column"></th></tr></thead><tbody>${sorted.map(r => `<tr>
       <td>${formatDate(r.date)}</td><td>${escapeHtml(r.time || '')}</td><td>${escapeHtml(r.studentName || studentName(r.studentId))}<small>${escapeHtml(SchoolModel.subjectLabel(r))} · ${escapeHtml(compactJournalClass(r.className))}</small></td>
       <td>${formatNumber(r.pedHours)}</td><td>${formatNumber(r.kcHours)}</td>${hasTopics ? `<td class="journal-topic-text">${journalHasTopic(r) ? escapeHtml(r.topic || '—') : ''}</td>` : ''}<td class="journal-edit-column">${r.status==='absent' ? escapeHtml(r.absenceLabel || 'Отсутствие') : `<button class="ghost-button" type="button" data-action="journalTopic:${escapeAttr(r.id)}" aria-label="${journalHasTopic(r) ? 'Тема и часы' : 'Часы'} ${escapeAttr(r.studentName || studentName(r.studentId))} ${escapeAttr(r.date)} ${escapeAttr(r.time || '')}">${journalHasTopic(r) ? 'Заполнить' : 'Часы'}</button>`}</td></tr>`).join('')}</tbody></table></div></section>
-    <section class="journal-detail-section journal-monthly-section"><h3>Часы по месяцам · ${year}/${year+1}</h3><p class="muted-note">По сформированным журналам, за полные месяцы, включая будущие занятия. «—» — нет занятий в журнале. Групповые часы не умножаются на число детей.</p>
+    <section class="journal-detail-section journal-monthly-section"><div class="journal-section-heading"><h3>Часы по месяцам · ${year}/${year+1}</h3><button class="ghost-button no-print" type="button" id="printJournalMonthly" data-journal-print-section="monthly">Печать часов по месяцам</button></div><p class="muted-note">По сформированным журналам, за полные месяцы, включая будущие занятия. «—» — нет занятий в журнале. Групповые часы не умножаются на число детей.</p>
     <div class="journal-detail-scroll"><table class="journal-detail-table"><thead><tr><th>Группа / ученик · предмет</th>${months.map(m => `<th>${escapeHtml(monthLabel(m))}</th>`).join('')}<th>Всего</th></tr></thead><tbody>${monthly.map(row => `<tr><td>${escapeHtml(row.name)}<small>${escapeHtml(row.subject)} · ${escapeHtml(compactJournalClass(row.className))}</small></td>${months.map(m => `<td>${Object.hasOwn(row.hours,m) ? formatNumber(row.hours[m]) : '—'}</td>`).join('')}<td>${formatNumber(Object.values(row.hours).reduce((a,b) => a+b,0))}</td></tr>`).join('')}</tbody><tfoot><tr><th>Итого, Пед. + Кц</th>${months.map(m => `<th>${monthly.some(r => Object.hasOwn(r.hours,m)) ? formatNumber(monthly.reduce((total,r) => total+(r.hours[m] || 0),0)) : '—'}</th>`).join('')}<th>${formatNumber(monthly.reduce((total,r) => total + Object.values(r.hours).reduce((a,b) => a+b,0),0))}</th></tr></tfoot></table></div></section>`;
 }
 

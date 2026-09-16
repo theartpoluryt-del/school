@@ -1791,7 +1791,8 @@ th {
 .absence-saving { cursor: progress; }
 #absencePanel { margin-top: 16px; }
 .absence-mark { color: #78838a; }
-.journal-print-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.journal-section-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-bottom: 12px; }
+.journal-detail-section .journal-section-heading h3 { margin: 0; }
 @media print {
   .no-print { display: none !important; }
   body[data-journal-print] .tab-view { display: none !important; }

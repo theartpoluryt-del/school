@@ -36,7 +36,17 @@ test('printed lesson cells contain only their grade/dot, without hours, roster o
 
 test('three separate print buttons isolate the matrix, topics and monthly hours',()=>{
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
-  for(const id of ['printJournal','printJournalTopics','printJournalMonthly']) assert(html.includes(`id="${id}"`));
+  const source=fs.readFileSync(require.resolve('../app.js'),'utf8');
+  assert(html.includes('id="printJournal"'));
+  assert(!html.includes('id="printJournalTopics"'));
+  assert(!html.includes('id="printJournalMonthly"'));
+  for(const [section,id,mode] of [['journal-topics-section','printJournalTopics','topics'],['journal-monthly-section','printJournalMonthly','monthly']]) {
+    const header=source.slice(source.indexOf(`journal-detail-section ${section}`)).split('</div>')[0];
+    assert(header.includes(`id="${id}"`));
+    assert(header.includes(`data-journal-print-section="${mode}"`));
+    assert(header.includes('no-print'));
+  }
+  assert(source.includes("document.querySelector('#journalDetails').addEventListener('click'"));
   for(const selector of [
     'body[data-journal-print="matrix"] #journalDetails',
     'body[data-journal-print="topics"] #journalMatrix',
