@@ -134,7 +134,10 @@ document.querySelector("#studentForm").addEventListener("submit", addStudent);
 document.querySelector("#employeeForm").addEventListener("submit", addEmployee);
 document.querySelector("#holidayForm").addEventListener("submit", addHoliday);
 document.querySelector("#generateJournal").addEventListener("click", generateSelectedMonth);
-document.querySelector("#printJournal").addEventListener("click", async () => { if (await ensureCloudSaved()) window.print(); });
+document.querySelector("#printJournal").addEventListener("click", () => printJournalSection('matrix'));
+document.querySelector("#printJournalTopics").addEventListener("click", () => printJournalSection('topics'));
+document.querySelector("#printJournalMonthly").addEventListener("click", () => printJournalSection('monthly'));
+window.addEventListener('afterprint', () => { delete document.body.dataset.journalPrint; });
 document.querySelector('#retryCloudSave')?.addEventListener('click', () => flushCloudSave());
 window.addEventListener('online', () => { if (cloudDirty) flushCloudSave(); });
 document.querySelector('#journalInstrument').addEventListener('change', renderJournal);
@@ -2363,6 +2366,7 @@ function renderSchedulePrintRow(row) {
 async function printSchedule() {
   if (!(await ensureCloudSaved())) return;
   document.body.classList.add("printing-schedule");
+  delete document.body.dataset.journalPrint;
   window.print();
 }
 
@@ -2471,6 +2475,13 @@ function journalMonthlyRows(records) {
   return [...rows.values()].sort((a,b) => a.subject.localeCompare(b.subject,'ru') || a.name.localeCompare(b.name,'ru'));
 }
 
+async function printJournalSection(section) {
+  if (!['matrix','topics','monthly'].includes(section) || !(await ensureCloudSaved())) return;
+  document.body.classList.remove('printing-schedule','printing-substitutions');
+  document.body.dataset.journalPrint = section;
+  window.print();
+}
+
 function renderJournalDetails(records, month) {
   if (!records.length) return '';
   const sorted = [...records].sort((a,b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || '') || (a.studentName || '').localeCompare(b.studentName || ''));
@@ -2483,7 +2494,7 @@ function renderJournalDetails(records, month) {
   const monthly = journalMonthlyRows(yearRecords);
   const heading = [monthLabel(month), subject, group ? studentName(group) : '', instrument].filter(Boolean).map(escapeHtml).join(' · ');
   const hasTopics = sorted.some(journalHasTopic);
-  return `<section class="journal-detail-section"><h3>${hasTopics ? 'Темы и часы' : 'Часы занятий'} · ${heading}</h3>
+  return `<section class="journal-detail-section journal-topics-section"><h3>${hasTopics ? 'Темы и часы' : 'Часы занятий'} · ${heading}</h3>
     <div class="journal-detail-scroll"><table class="journal-detail-table"><thead><tr><th>Дата</th><th>Время</th><th>Группа / ученик · предмет</th><th>Пед.</th><th>Кц</th>${hasTopics ? '<th>Тема урока</th>' : ''}<th class="journal-edit-column"></th></tr></thead><tbody>${sorted.map(r => `<tr>
       <td>${formatDate(r.date)}</td><td>${escapeHtml(r.time || '')}</td><td>${escapeHtml(r.studentName || studentName(r.studentId))}<small>${escapeHtml(SchoolModel.subjectLabel(r))} · ${escapeHtml(compactJournalClass(r.className))}</small></td>
       <td>${formatNumber(r.pedHours)}</td><td>${formatNumber(r.kcHours)}</td>${hasTopics ? `<td class="journal-topic-text">${journalHasTopic(r) ? escapeHtml(r.topic || '—') : ''}</td>` : ''}<td class="journal-edit-column">${r.status==='absent' ? escapeHtml(r.absenceLabel || 'Отсутствие') : `<button class="ghost-button" type="button" data-action="journalTopic:${escapeAttr(r.id)}" aria-label="${journalHasTopic(r) ? 'Тема и часы' : 'Часы'} ${escapeAttr(r.studentName || studentName(r.studentId))} ${escapeAttr(r.date)} ${escapeAttr(r.time || '')}">${journalHasTopic(r) ? 'Заполнить' : 'Часы'}</button>`}</td></tr>`).join('')}</tbody></table></div></section>

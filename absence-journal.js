@@ -78,7 +78,7 @@
     const button=event.target.closest('[data-absence-action]');if(!button)return;
     if(button.dataset.absenceAction==='open')open();
     if(button.dataset.absenceAction==='cancel' && confirm('Отменить весь период отсутствия? Часы вернутся исходному преподавателю, а часы замещения исключатся. История оценок замещения останется в базе.'))await action('cancel',{absenceId:button.dataset.absenceId});
-    if(button.dataset.absenceAction==='print' && await ensureCloudSaved()) {document.body.classList.add('printing-substitutions');window.print();}
+    if(button.dataset.absenceAction==='print' && await ensureCloudSaved()) {delete document.body.dataset.journalPrint;document.body.classList.add('printing-substitutions');window.print();}
   });
   document.addEventListener('submit',async event=>{
     const form=event.target.closest('[data-absence-form]');if(!form)return;event.preventDefault();

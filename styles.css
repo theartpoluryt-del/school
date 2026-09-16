@@ -1791,8 +1791,22 @@ th {
 .absence-saving { cursor: progress; }
 #absencePanel { margin-top: 16px; }
 .absence-mark { color: #78838a; }
+.journal-print-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 @media print {
   .no-print { display: none !important; }
+  body[data-journal-print] .tab-view { display: none !important; }
+  body[data-journal-print] #journalView { display: block !important; }
+  body[data-journal-print] #absencePanel,
+  body[data-journal-print="matrix"] #journalDetails,
+  body[data-journal-print="topics"] #journalMatrix,
+  body[data-journal-print="topics"] .journal-monthly-section,
+  body[data-journal-print="monthly"] #journalMatrix,
+  body[data-journal-print="monthly"] .journal-topics-section { display: none !important; }
+  body[data-journal-print] .journal-detail-section {
+    break-before: auto; margin-top: 0; border-top: 0; padding-top: 0;
+  }
+  body[data-journal-print="topics"] #journalView > .content-panel > .panel-toolbar,
+  body[data-journal-print="monthly"] #journalView > .content-panel > .panel-toolbar { display: none; }
   body.printing-substitutions .tab-view { display: none !important; }
   body.printing-substitutions #journalView { display: block !important; }
   body.printing-substitutions #journalView > .content-panel > :not(#absencePanel) { display: none !important; }

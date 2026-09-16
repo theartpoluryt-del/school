@@ -1,6 +1,7 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
+const vm=require('node:vm');
 const css=fs.readFileSync(require.resolve('../styles.css'),'utf8');
 
 function printStyles() {
@@ -31,4 +32,35 @@ test('printed lesson cells contain only their grade/dot, without hours, roster o
   assert(!/display:\s*none/.test(declarationsFor('.grade-value')));
   assert(/min-height:\s*12px/.test(declarationsFor('.grade-control')));
   assert(/font-size:\s*10px/.test(declarationsFor('.grade-control')));
+});
+
+test('three separate print buttons isolate the matrix, topics and monthly hours',()=>{
+  const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
+  for(const id of ['printJournal','printJournalTopics','printJournalMonthly']) assert(html.includes(`id="${id}"`));
+  for(const selector of [
+    'body[data-journal-print="matrix"] #journalDetails',
+    'body[data-journal-print="topics"] #journalMatrix',
+    'body[data-journal-print="topics"] .journal-monthly-section',
+    'body[data-journal-print="monthly"] #journalMatrix',
+    'body[data-journal-print="monthly"] .journal-topics-section',
+    'body[data-journal-print] #absencePanel'
+  ]) assert.match(declarationsFor(selector),/display:\s*none\s*!important/);
+  assert.match(declarationsFor('body[data-journal-print] .journal-detail-section'),/break-before:\s*auto/);
+});
+
+test('each print mode waits for saved data and clears incompatible print modes',async()=>{
+  const source=fs.readFileSync(require.resolve('../app.js'),'utf8');
+  const start=source.indexOf('async function printJournalSection('),end=source.indexOf('\nfunction ',start);
+  let saved=true,prints=0,cleared=[];
+  const body={dataset:{},classList:{remove:(...names)=>{cleared=names;}}};
+  const c=vm.createContext({document:{body},window:{print:()=>prints++},ensureCloudSaved:async()=>saved});
+  vm.runInContext(source.slice(start,end),c);
+  for(const mode of ['matrix','topics','monthly']) {
+    await c.printJournalSection(mode);assert.equal(body.dataset.journalPrint,mode);
+    assert.deepEqual(cleared,['printing-schedule','printing-substitutions']);
+  }
+  assert.equal(prints,3);
+  saved=false;await c.printJournalSection('matrix');assert.equal(prints,3);
+  saved=true;await c.printJournalSection('unknown');assert.equal(prints,3);
+  assert.match(source,/afterprint[^\n]+delete document\.body\.dataset\.journalPrint/);
 });
