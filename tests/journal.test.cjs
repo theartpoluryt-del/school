@@ -43,12 +43,56 @@ test('half-hour person-hours agree in monthly totals, pupil rows and print repor
     type:'Сольфеджио',educationForm:'ДПП',pedHours:2.125,kcHours:0,status:'conducted'}));
   c.state.records=records;
   assert.equal(c.journalTotals(records).total.person,104);
-  assert.equal(c.journalTotals(records).total.ped,8.5,'teacher workload is not rounded');
+  assert.equal(c.journalTotals(records).total.ped,8,'teacher workload rounds per lesson, not at the end');
+  assert.equal(c.sum(records,'pedHours'),8);
+  assert.equal(c.journalMonthlyRows(records)[0].hours['2026-09'],8);
   assert.equal(c.renderPersonHoursTotal(records),'104');
   assert.equal(c.renderPersonHoursTotal(records,'p0'),'8');
   const report=c.renderLessonRosterPrintReport(records);
   assert.equal((report.match(/<td>26<\/td>/g)||[]).length,4);
   assert.ok(!report.includes('27.625'));
+  assert.equal(records[0].pedHours,2.125,'reporting does not rewrite stored history');
+  assert.equal(records[0].time,'10:00-11:25');
+});
+
+test('Ped and KC round independently in journal, monthly summaries and schedule print',()=>{
+  const c=fixture();
+  const r={id:'r',studentId:'s',employeeId:'t',date:'2026-09-02',time:'10:00-11:25',
+    type:'Специальность',pedHours:2.13,kcHours:0.63,status:'conducted',weekday:3};
+  const rows=[r,{...r,id:'r2'}];
+  assert.equal(c.journalTotals(rows).total.ped,4);
+  assert.equal(c.journalTotals(rows).total.kc,1);
+  assert.equal(c.journalMonthlyRows(rows)[0].hours['2026-09'],5);
+  c.weekdays={3:'Среда'};
+  load('renderSchedulePrintRow',c);
+  const html=c.renderSchedulePrintRow(r);
+  assert.ok(html.includes('<td>2</td>'));
+  assert.ok(html.includes('<td>0.5</td>'));
+  assert.ok(html.includes('10:00-11:25'));
+});
+
+test('editing a journal workload saves half hours without changing lesson time',()=>{
+  const c=fixture();
+  const r={id:'r',employeeId:'t',studentId:'s',time:'10:00-10:40',pedHours:1,kcHours:0};
+  c.state.records=[r];
+  c.saveJournalTopic({dataset:{recordId:'r'},elements:{pedHours:{value:'2.13'},kcHours:{value:'0.63'}}});
+  assert.equal(r.pedHours,2);assert.equal(r.kcHours,0.5);assert.equal(r.academicHours,2.5);
+  assert.equal(r.time,'10:00-10:40');
+});
+
+test('five-minute breaks do not inflate time-derived workload or change clock times',()=>{
+  const c=fixture();
+  c.splitScheduleTime=value=>{const [start,end]=value.split('-');return {start,end};};
+  c.minutesFromTime=value=>{const [h,m]=value.split(':').map(Number);return h*60+m;};
+  load('lessonUnitsFromTime',c);load('updateHoursFromTime',c);
+  for(const [ped,kc] of [[2,0],[0,2],[1,1]]) {
+    const row={time:'10:00-11:25',pedHours:ped,kcHours:kc};
+    c.updateHoursFromTime(row);
+    assert.equal(row.pedHours,ped);assert.equal(row.kcHours,kc);
+    assert.equal(row.time,'10:00-11:25');
+  }
+  const choir={time:'10:00-10:55',academicHours:1.5,pedHours:1.5,kcHours:0};
+  c.updateHoursFromTime(choir);assert.equal(choir.pedHours,1.5);
 });
 
 test('topics apply only to lessons with at least eight roster members',()=>{

@@ -19,9 +19,14 @@ test('group hours count once; attendance does not multiply hours',()=>{
   assert.equal(paid.workedHours([lesson,{...lesson,hours:2.5}, {...lesson,hours:10,completed:false}]),3.5);
   assert.equal(paid.workedHours([{...lesson,deleted:true}]),0);
 });
-test('quarter academic hours are validated',()=>{
-  for(const h of [0.25,0.5,1,2,2.5,24]) assert.equal(paid.validHours(h),true);
-  for(const h of [0,-1,0.3,25,'bad',Infinity]) assert.equal(paid.validHours(h),false);
+test('paid hours accept decimals and round per completed lesson before summing',()=>{
+  for(const h of [0.25,0.3,0.5,1,2,2.13,2.5,24]) assert.equal(paid.validHours(h),true);
+  for(const h of [0,0.1,-1,25,'bad',Infinity]) assert.equal(paid.validHours(h),false);
+  assert.equal(paid.newLesson(course,'t','2026-09-02',2.13).hours,2);
+  const lessons=Array.from({length:4},()=>({hours:2.13,completed:true}));
+  assert.equal(paid.workedHours(lessons),8);
+  assert.equal(paid.workedHours([{hours:0.25,completed:true},{hours:0.63,completed:true},{hours:2.13,completed:false}]),1);
+  assert.equal(lessons[0].hours,2.13,'no bulk rewrite of paid history');
 });
 test('historical pupils remain visible, duplicate IDs do not duplicate rows',()=>{
   const lesson=paid.newLesson(course,'teacher','2026-09-02',1);

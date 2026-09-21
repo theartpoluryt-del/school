@@ -37,8 +37,11 @@ distinct pupils in that lesson's roster, irrespective of attendance. Legacy `pre
 For person-hours, each lesson duration is rounded to the nearest 0.5 academic hour **before**
 multiplying by its pupil count and summing monthly totals (ties round upward). For example,
 85 clock minutes / 40 = 2.125 rounds to 2, so 13 pupils produce 26 person-hours, not 27.625.
-Explicit academic-hour overrides use the same rounding. Clock times, Ped./KC workload and
-the separate paid journal are not modified. Existing records recalculate when displayed.
+Explicit academic-hour overrides use the same rounding. Ped./KC workload also rounds independently
+per lesson before summation, in the timetable, journal, monthly reports and substitution printouts.
+The paid journal rounds each completed lesson's hours before totaling (never by pupil count).
+Clock times and historical database records are not bulk-rewritten; existing records recalculate
+when displayed. New time-derived workloads and explicitly edited hours save in half-hour units.
 `journalLessonRoster` first honors a dated correction (`rosterOverride: true` with `participantIds`).
 Otherwise it uses the explicit subgroup from the exact linked schedule row ahead of
 stale journal snapshots, for cells, totals and the printed roster. It never substitutes a different

@@ -54,7 +54,7 @@
           <span class="paid-print-value">${present?'✓':'—'}${l.grades[p.id]?' / '+escapeHtml(l.grades[p.id]):''}</span></div></td>`;
       }).join('')}</tr>`).join('')}</tbody>
       <tfoot><tr><th scope="row">Проведено</th>${rows.map(l=>`<td><input type="checkbox" data-completed="${escapeAttr(l.id)}" aria-label="Проведено ${escapeAttr(formatDate(l.lesson_date))}" ${l.completed?'checked':''} /><span class="paid-print-value">${l.completed?'✓':'—'}</span></td>`).join('')}</tr>
-      <tr><th scope="row">Часы</th>${rows.map(l=>`<td>${formatNumber(l.hours)}</td>`).join('')}</tr></tfoot></table>`;
+      <tr><th scope="row">Часы</th>${rows.map(l=>`<td>${formatNumber(PaidModel.roundHours(l.hours))}</td>`).join('')}</tr></tfoot></table>`;
     setBusy(busy);
     // Future attendance/completion cannot be recorded ahead of the actual lesson.
     rows.filter(l=>l.lesson_date>todayISO()).forEach(l=>el('paidMatrix').querySelectorAll(`[data-attendance="${CSS.escape(l.id)}"], [data-completed="${CSS.escape(l.id)}"], [data-grade="${CSS.escape(l.id)}"]`).forEach(n=>n.disabled=true));
@@ -116,7 +116,7 @@
     openModal(existing?'Занятие платных услуг':'Добавить платное занятие', `<form id="paidLessonForm">
       <p>${escapeHtml(course().name)}</p>
       <div class="form-grid"><label>Дата<input name="date" type="date" required min="${escapeAttr(defaultDate)}" max="${month}-${new Date(Number(month.slice(0,4)),Number(month.slice(5)),0).getDate()}" value="${escapeAttr(existing?.lesson_date || defaultDate)}" /></label>
-      <label>Часы (40 минут)<input name="hours" type="number" min="0.25" max="24" step="0.25" required value="${existing?.hours || course().weekly_hours || 1}" /></label></div>
+      <label>Часы (округление до 0,5)<input name="hours" type="number" min="0.25" max="24" step="any" required value="${PaidModel.roundHours(existing?.hours || course().weekly_hours || 1)}" /></label></div>
       <p>Если в этот день несколько занятий, укажите суммарные часы. Посещаемость отмечается отдельно в журнале.</p>
       <p id="paidModalStatus" role="status"></p><div class="form-actions"><button class="primary-button" type="submit">Сохранить</button>${existing?'<button class="danger-button" type="button" id="paidRemoveLesson">Удалить занятие</button>':''}</div></form>`);
     const form = el('paidLessonForm');
@@ -126,7 +126,7 @@
       const fields = new FormData(form); if (!PaidModel.validHours(fields.get('hours'))) return;
       form.querySelectorAll('button').forEach(b=>b.disabled=true);
       await saveLesson({...existing || PaidModel.newLesson(selected,employee,fields.get('date'),fields.get('hours')),
-        lesson_date:fields.get('date'),hours:Number(fields.get('hours'))},closeModal);
+        lesson_date:fields.get('date'),hours:PaidModel.roundHours(fields.get('hours'))},closeModal);
       form.querySelectorAll('button').forEach(b=>b.disabled=false);
     });
     el('paidRemoveLesson')?.addEventListener('click',async()=>{
@@ -145,7 +145,7 @@
       <div class="form-grid"><label>Предмет<input name="subject" required maxlength="120" value="${escapeAttr(old?.subject||'')}" /></label>
       <label>Возраст / группа<input name="age_label" value="${escapeAttr(old?.age_label||'')}" placeholder="Например: 5 лет" /></label>
       <label>Начало обучения<input name="starts_on" required type="date" value="${escapeAttr(old?.starts_on||el('paidMonth').value+'-01')}" /></label>
-      <label>Часов в неделю<input name="weekly_hours" type="number" min="0.25" max="40" step="0.25" value="${old?.weekly_hours||''}" /></label></div>
+      <label>Часов в неделю (округление до 0,5)<input name="weekly_hours" type="number" min="0.25" max="40" step="any" value="${old?.weekly_hours ? PaidModel.roundHours(old.weekly_hours) : ''}" /></label></div>
       <label>Ученики (каждый с новой строки)<textarea name="students" required rows="7">${escapeHtml((old?.students||[]).map(s=>s.name).join('\n'))}</textarea></label>
       <p>Новый состав применяется к новым занятиям. В уже заполненных занятиях состав сохраняется.</p>
       <details><summary>Преподаватели и концертмейстеры</summary><fieldset id="paidTeachers"><legend>Преподаватели</legend>${options(old?.teacher_ids||[state.activeEmployeeId])}</fieldset>
@@ -159,7 +159,7 @@
       const names=String(f.get('students')).split('\n').map(n=>n.trim()).filter(Boolean);
       if (new Set(names.map(n=>n.toLocaleLowerCase('ru'))).size!==names.length) {el('paidFormError').textContent='В списке повторяются имена.';return;}
       const ids=id=>[...el(id).querySelectorAll('input:checked')].map(n=>n.value);
-      const value={...old,name:f.get('name'),subject:f.get('subject'),age_label:f.get('age_label'),starts_on:f.get('starts_on'),weekly_hours:f.get('weekly_hours')||null,
+      const value={...old,name:f.get('name'),subject:f.get('subject'),age_label:f.get('age_label'),starts_on:f.get('starts_on'),weekly_hours:f.get('weekly_hours') ? PaidModel.roundHours(f.get('weekly_hours')) : null,
         teacher_ids:ids('paidTeachers'),accompanist_ids:ids('paidAccompanists'),archived:f.has('archived'),
         students:names.map(name=>old?.students.find(s=>s.name===name)||{id:crypto.randomUUID(),name})};
       if (!value.teacher_ids.length&&!value.accompanist_ids.length) {el('paidFormError').textContent='Выберите хотя бы одного сотрудника.';return;}

@@ -1,5 +1,9 @@
 (function (root) {
   'use strict';
+  function roundHours(value) {
+    const hours = Number(String(value ?? 0).replace(',', '.'));
+    return Number.isFinite(hours) ? Math.round(Math.max(0, hours) * 2) / 2 : 0;
+  }
   function courses(student, employeeId) {
     return (student?.enrollments || []).filter(e => (e.employeeIds || []).includes(employeeId)).map(e => ({
       ...e, subject: e.subject || 'Специальность',
@@ -54,9 +58,8 @@
     return Number.isFinite(hours) ? Math.max(0, hours) : 0;
   }
   function lessonHours(lesson) {
-    // Round each pupil's lesson duration before multiplying by the roster or summing
-    // the month. Clock times and the teacher's Ped./KC workload are unchanged.
-    return Math.round(rawLessonHours(lesson) * 2) / 2;
+    // Round each lesson before multiplying by the roster or summing the month.
+    return roundHours(rawLessonHours(lesson));
   }
   function personHours(lesson) {
     if (!Array.isArray(lesson.participantIds)) return null;
@@ -65,7 +68,7 @@
     // Person-hours are allocated by the lesson roster, regardless of actual attendance.
     return lessonHours(lesson) * members.length;
   }
-  const api = { courses, courseLabel, courseChoices, applyCourse, endTime, subjectLabel, memberIds, lessonHours, personHours };
+  const api = { roundHours, courses, courseLabel, courseChoices, applyCourse, endTime, subjectLabel, memberIds, lessonHours, personHours };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SchoolModel = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
