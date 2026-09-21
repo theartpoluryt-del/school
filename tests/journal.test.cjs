@@ -34,6 +34,23 @@ function fixture() {
   return ctx;
 }
 
+test('half-hour person-hours agree in monthly totals, pupil rows and print report',()=>{
+  const c=fixture();
+  const ids=Array.from({length:13},(_,i)=>'p'+i);
+  const records=Array.from({length:4},(_,i)=>({id:'r'+i,studentId:'g',employeeId:'t',
+    date:`2026-09-${String(2+i*7).padStart(2,'0')}`,time:'10:00-11:25',
+    participantKind:'group',participantIds:ids,participantNames:Object.fromEntries(ids.map(id=>[id,id])),
+    type:'Сольфеджио',educationForm:'ДПП',pedHours:2.125,kcHours:0,status:'conducted'}));
+  c.state.records=records;
+  assert.equal(c.journalTotals(records).total.person,104);
+  assert.equal(c.journalTotals(records).total.ped,8.5,'teacher workload is not rounded');
+  assert.equal(c.renderPersonHoursTotal(records),'104');
+  assert.equal(c.renderPersonHoursTotal(records,'p0'),'8');
+  const report=c.renderLessonRosterPrintReport(records);
+  assert.equal((report.match(/<td>26<\/td>/g)||[]).length,4);
+  assert.ok(!report.includes('27.625'));
+});
+
 test('topics apply only to lessons with at least eight roster members',()=>{
   const c=fixture();
   for (const n of [1,2,7,8,13]) {

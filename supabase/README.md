@@ -34,6 +34,11 @@ Generated journal records snapshot these IDs and their `participantNames`. The j
 attendance editor: person-hours multiply lesson duration in 40-minute academic hours by all
 distinct pupils in that lesson's roster, irrespective of attendance. Legacy `presentStudentIds`,
 `attendanceLessonHours` and `attendanceRecordedAt` no longer affect calculations.
+For person-hours, each lesson duration is rounded to the nearest 0.5 academic hour **before**
+multiplying by its pupil count and summing monthly totals (ties round upward). For example,
+85 clock minutes / 40 = 2.125 rounds to 2, so 13 pupils produce 26 person-hours, not 27.625.
+Explicit academic-hour overrides use the same rounding. Clock times, Ped./KC workload and
+the separate paid journal are not modified. Existing records recalculate when displayed.
 `journalLessonRoster` first honors a dated correction (`rosterOverride: true` with `participantIds`).
 Otherwise it uses the explicit subgroup from the exact linked schedule row ahead of
 stale journal snapshots, for cells, totals and the printed roster. It never substitutes a different

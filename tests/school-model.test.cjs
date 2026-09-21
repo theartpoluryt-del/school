@@ -23,6 +23,27 @@ test('person-hours use the unique roster regardless of old attendance and suppor
   assert.deepEqual(model.memberIds({studentId:'g',participantIds:[]},{studentIds:['a']}),[]);
   assert.equal(model.lessonHours({time:'99:99-99:99',pedHours:'bad'}),0);
 });
+test('person-hours round each lesson to nearest half hour before multiplying or summing',()=>{
+  for(const [time,hours] of [
+    ['10:00-10:20',0.5],['10:00-10:40',1],['10:00-10:45',1],
+    ['10:00-11:00',1.5],['10:00-11:05',1.5],['10:00-11:20',2],
+    ['10:00-11:25',2],['10:00-11:40',2.5],['10:00-11:45',2.5],
+    ['10:00-11:29',2],['10:00-11:30',2.5]
+  ]) {
+    const lesson={time,participantIds:Array.from({length:13},(_,i)=>'p'+i),pedHours:2.125,kcHours:0};
+    const before=JSON.stringify(lesson);
+    assert.equal(model.lessonHours(lesson),hours,time);
+    assert.equal(model.personHours(lesson),hours*13,time);
+    assert.equal(model.personHours(lesson)*4,hours*13*4,time);
+    assert.equal(JSON.stringify(lesson),before,'rounding must not rewrite workload or time');
+  }
+  assert.equal(model.personHours({time:'10:00-11:25',participantIds:['a']}),2);
+  assert.equal(model.lessonHours({academicHours:2.13,time:'10:00-11:25'}),2);
+  assert.equal(model.lessonHours({pedHours:2.13}),2);
+  assert.equal(model.lessonHours({academicHours:0,time:'10:00-11:25'}),0);
+  assert.equal(model.endTime('10:00',1.25),'10:50','schedule clock calculation is unchanged');
+});
+
 test('40-minute academic hours and decimal comma', () => {
   assert.equal(model.endTime('10:00',1),'10:40');
   assert.equal(model.endTime('10:00',2),'11:20');

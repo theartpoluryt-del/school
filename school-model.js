@@ -41,7 +41,7 @@
     const ids = Array.isArray(lesson.participantIds) ? lesson.participantIds : group ? group.studentIds : lesson.participantKind === 'group' ? [] : [lesson.studentId];
     return [...new Set((ids || []).filter(id => typeof id === 'string' && id))];
   }
-  function lessonHours(lesson) {
+  function rawLessonHours(lesson) {
     // Some curricula allocate 1.5 academic hours to 55 clock minutes.
     if (lesson.academicHours != null && Number.isFinite(Number(lesson.academicHours)) && Number(lesson.academicHours) >= 0) return Number(lesson.academicHours);
     const match = String(lesson.time || '').match(/^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/);
@@ -53,12 +53,17 @@
     const hours = Number(lesson.pedHours || 0) + Number(lesson.kcHours || 0);
     return Number.isFinite(hours) ? Math.max(0, hours) : 0;
   }
+  function lessonHours(lesson) {
+    // Round each pupil's lesson duration before multiplying by the roster or summing
+    // the month. Clock times and the teacher's Ped./KC workload are unchanged.
+    return Math.round(rawLessonHours(lesson) * 2) / 2;
+  }
   function personHours(lesson) {
     if (!Array.isArray(lesson.participantIds)) return null;
     const members = memberIds(lesson);
     if (!members.length) return null;
     // Person-hours are allocated by the lesson roster, regardless of actual attendance.
-    return Math.round(lessonHours(lesson) * members.length * 100) / 100;
+    return lessonHours(lesson) * members.length;
   }
   const api = { courses, courseLabel, courseChoices, applyCourse, endTime, subjectLabel, memberIds, lessonHours, personHours };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
