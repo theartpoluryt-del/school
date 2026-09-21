@@ -26,6 +26,29 @@
     return {...merge(clean(base),clean(local),clean(remote)), sessionEmployeeId:local.sessionEmployeeId,
       activeEmployeeId:local.activeEmployeeId,...Object.fromEntries(serverKeys.map(key=>[key,remote[key]]))};
   }
-  const api={merge,payload};
+  async function request(builder, timeoutMs=20000) {
+    const controller=new AbortController();
+    let timer;
+    const timeout=new Promise((_,reject)=>{
+      timer=setTimeout(()=>{
+        const error=new Error('Сервер не ответил за отведённое время. Проверьте соединение и повторите сохранение.');
+        error.code='CLIENT_TIMEOUT';
+        reject(error);
+        controller.abort();
+      },timeoutMs);
+    });
+    try {
+      // Also covers an SDK auth/token lock before fetch has started.
+      return await Promise.race([typeof builder.abortSignal==='function' ? builder.abortSignal(controller.signal) : builder,timeout]);
+    } finally {clearTimeout(timer);}
+  }
+  function errorMessage(error) {
+    const message=error?.message || 'Неизвестная ошибка сервера.';
+    if (/statement timeout|57014/i.test(message)) return 'Сервер слишком долго обрабатывает запрос. Повторите сохранение через минуту.';
+    if (/JWT expired|invalid JWT|refresh token|session.*expired/i.test(message)) return 'Сессия входа истекла. Не закрывайте страницу с изменениями; обратитесь к администратору.';
+    if (/failed to fetch|network|load failed/i.test(message)) return 'Нет ответа от сервера. Проверьте интернет и повторите сохранение.';
+    return message;
+  }
+  const api={merge,payload,request,errorMessage};
   if(typeof module!=='undefined' && module.exports) module.exports=api; else root.SchoolSync=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

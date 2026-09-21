@@ -58,19 +58,35 @@ test('three separate print buttons isolate the matrix, topics and monthly hours'
   assert.match(declarationsFor('body[data-journal-print] .journal-detail-section'),/break-before:\s*auto/);
 });
 
-test('each print mode waits for saved data and clears incompatible print modes',async()=>{
+test('each print mode runs synchronously after explicit draft check and clears other modes',()=>{
   const source=fs.readFileSync(require.resolve('../app.js'),'utf8');
-  const start=source.indexOf('async function printJournalSection('),end=source.indexOf('\nfunction ',start);
+  const start=source.indexOf('function printJournalSection('),end=source.indexOf('\nfunction ',start);
   let saved=true,prints=0,cleared=[];
   const body={dataset:{},classList:{remove:(...names)=>{cleared=names;}}};
-  const c=vm.createContext({document:{body},window:{print:()=>prints++},ensureCloudSaved:async()=>saved});
+  const c=vm.createContext({document:{body},window:{print:()=>prints++},preparePrint:()=>saved});
   vm.runInContext(source.slice(start,end),c);
   for(const mode of ['matrix','topics','monthly']) {
-    await c.printJournalSection(mode);assert.equal(body.dataset.journalPrint,mode);
+    c.printJournalSection(mode);assert.equal(body.dataset.journalPrint,mode);
     assert.deepEqual(cleared,['printing-schedule','printing-substitutions']);
   }
   assert.equal(prints,3);
-  saved=false;await c.printJournalSection('matrix');assert.equal(prints,3);
-  saved=true;await c.printJournalSection('unknown');assert.equal(prints,3);
+  saved=false;c.printJournalSection('matrix');assert.equal(prints,3);
+  saved=true;c.printJournalSection('unknown');assert.equal(prints,3);
   assert.match(source,/afterprint[^\n]+delete document\.body\.dataset\.journalPrint/);
+});
+
+test('unsaved printing requires consent, is marked draft, never marks data saved',()=>{
+  const source=fs.readFileSync(require.resolve('../app.js'),'utf8');
+  const start=source.indexOf('function preparePrint()'),end=source.indexOf("\nwindow.addEventListener('afterprint'",start);
+  let consent=false,prompted=0,draft;
+  const c=vm.createContext({supabaseClient:{},cloudDirty:true,cloudSaveInFlight:true,
+    document:{body:{classList:{toggle:(name,value)=>draft=value}}},
+    confirm:()=>{prompted++;return consent;},alert(){}});
+  vm.runInContext(source.slice(start,end),c);
+  assert.equal(c.preparePrint(),false);assert.equal(draft,undefined);
+  consent=true;assert.equal(c.preparePrint(),true);assert.equal(draft,true);
+  assert.equal(c.cloudDirty,true);
+  c.cloudDirty=false;c.cloudSaveInFlight=false;
+  assert.equal(c.preparePrint(),true);assert.equal(draft,false);assert.equal(prompted,2);
+  assert.match(declarationsFor('body.printing-draft::before'),/ЧЕРНОВИК/);
 });

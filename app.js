@@ -1,6 +1,7 @@
 const supabaseConfig = window.SCHOOL_SUPABASE_CONFIG;
 const supabaseClient = supabaseConfig?.url && supabaseConfig?.publishableKey && window.supabase
-  ? window.supabase.createClient(supabaseConfig.url, supabaseConfig.publishableKey)
+  // Conflicts must be rebased, not replayed with the same stale version.
+  ? window.supabase.createClient(supabaseConfig.url, supabaseConfig.publishableKey, {db: {retry: false}})
   : null;
 let cloudStateId = "";
 let cloudStateVersion = "";
@@ -109,7 +110,7 @@ document.querySelector("#modalOverlay").addEventListener("click", (event) => {
 document.querySelector("#activeEmployee").addEventListener("change", (event) => {
   if (!isAdmin()) return;
   state.activeEmployeeId = event.target.value;
-  persistAndRender();
+  render();
 });
 document.querySelector("#logoutButton").addEventListener("click", logout);
 document.querySelector("#exportData").addEventListener("click", exportSchoolData);
@@ -672,21 +673,28 @@ async function flushCloudSave() {
   finally { cloudSavePromise = null; }
 }
 
+async function cloudRequest(request, timeoutMs = 20000) {
+  return SchoolSync.request(request, timeoutMs);
+}
+
 async function saveCloudChanges() {
   cloudSaveInFlight = true;
   setSyncStatus("Сохраняем…", "pending");
   try {
-    for (let attempt=0; attempt<5 && cloudDirty; attempt++) {
+    const deadline = Date.now() + 60000;
+    for (let attempt=0; attempt<3 && cloudDirty; attempt++) {
+    if (Date.now() >= deadline) throw new Error('Сервер не успел подтвердить сохранение. Повторите попытку.');
     const sent=cloudPayload(), revision=cloudRevision;
     if (secureCloudMode) {
-      const { data, error } = await supabaseClient.rpc("save_school_context", {
+      const { data, error } = await cloudRequest(supabaseClient.rpc("save_school_context", {
         new_payload: sent,
         expected_updated_at: cloudStateVersion || null
-      });
+      }), Math.min(20000, deadline - Date.now()));
       if (error) {
         console.warn("Secure Supabase state save failed", error.message);
         if (["PT409", "40001"].includes(error.code)) {
-          const latest=await supabaseClient.rpc('get_school_context');
+          setSyncStatus('Согласуем изменения с сервером…', 'pending');
+          const latest=await cloudRequest(supabaseClient.rpc('get_school_context'), Math.max(1, Math.min(20000, deadline - Date.now())));
           if (latest.error || !latest.data?.payload || !cloudBaseline) throw new Error('Не удалось согласовать изменения.');
           const remote=migrateState(latest.data.payload);
           const session=state.sessionEmployeeId;
@@ -699,23 +707,24 @@ async function saveCloudChanges() {
         }
         throw new Error(error.message || 'Сервер отклонил сохранение.');
       }
+      if (!data?.updated_at) throw new Error('Сервер не подтвердил сохранение. Повторите попытку.');
       cloudStateVersion = data.updated_at;
     } else {
-    const { error } = await supabaseClient
+    const { error } = await cloudRequest(supabaseClient
       .from("school_state")
       .update({ payload: sent })
-      .eq("id", cloudStateId);
+      .eq("id", cloudStateId));
     if (error) throw new Error(error.message);
     }
     cloudBaseline=sent;
     cloudDirty=cloudRevision!==revision;
     }
-    if (cloudDirty) throw new Error('Есть новые изменения. Нажмите «Повторить сохранение».');
+    if (cloudDirty) throw new Error('Не все изменения подтверждены сервером. Нажмите «Повторить сохранение».');
     setSyncStatus(`Сохранено в ${currentTimeLabel()}`, "saved");
     return true;
   } catch(error) {
     console.warn('School save failed', error.message);
-    setSyncStatus('Не сохранено. Не закрывайте страницу. ' + error.message, 'error');
+    setSyncStatus('Не сохранено. Не закрывайте страницу. ' + SchoolSync.errorMessage(error), 'error');
     return false;
   } finally {
     cloudSaveInFlight = false;
@@ -743,6 +752,19 @@ function setSyncStatus(message, kind) {
   status.dataset.kind = kind;
   document.querySelector('#retryCloudSave')?.classList.toggle('is-hidden', kind !== 'error');
 }
+
+function preparePrint() {
+  if (globalThis.AbsenceJournal?.isBusy()) {
+    alert('Сейчас сохраняется замещение. Дождитесь результата перед печатью.');
+    return false;
+  }
+  const unsaved = Boolean(supabaseClient && (cloudDirty || cloudSaveInFlight));
+  if (unsaved && !confirm('Изменения ещё не подтверждены сервером. Можно распечатать текущие данные с пометкой «Черновик». Это не сохранит их на сервере. Печатать черновик?')) return false;
+  document.body.classList.toggle('printing-draft', unsaved);
+  return true;
+}
+
+window.addEventListener('afterprint', () => document.body.classList.remove('printing-draft'));
 
 function currentTimeLabel() {
   return new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit" }).format(new Date());
@@ -2365,8 +2387,9 @@ function renderSchedulePrintRow(row) {
   `;
 }
 
-async function printSchedule() {
-  if (!(await ensureCloudSaved())) return;
+function printSchedule() {
+  if (!preparePrint()) return;
+  document.body.classList.remove('printing-substitutions');
   document.body.classList.add("printing-schedule");
   delete document.body.dataset.journalPrint;
   window.print();
@@ -2477,8 +2500,8 @@ function journalMonthlyRows(records) {
   return [...rows.values()].sort((a,b) => a.subject.localeCompare(b.subject,'ru') || a.name.localeCompare(b.name,'ru'));
 }
 
-async function printJournalSection(section) {
-  if (!['matrix','topics','monthly'].includes(section) || !(await ensureCloudSaved())) return;
+function printJournalSection(section) {
+  if (!['matrix','topics','monthly'].includes(section) || !preparePrint()) return;
   document.body.classList.remove('printing-schedule','printing-substitutions');
   document.body.dataset.journalPrint = section;
   window.print();

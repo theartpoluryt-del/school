@@ -1794,6 +1794,16 @@ th {
 .journal-section-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-bottom: 12px; }
 .journal-detail-section .journal-section-heading h3 { margin: 0; }
 @media print {
+  body.printing-draft::before {
+    content: "ЧЕРНОВИК — изменения не подтверждены сервером";
+    display: block;
+    padding: 8px;
+    margin-bottom: 12px;
+    border: 1px solid #333;
+    color: #000;
+    font: bold 12px sans-serif;
+    text-align: center;
+  }
   .no-print { display: none !important; }
   body[data-journal-print] .tab-view { display: none !important; }
   body[data-journal-print] #journalView { display: block !important; }

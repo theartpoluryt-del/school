@@ -23,7 +23,7 @@
     document.body.classList.add('absence-saving');
     setSyncStatus('Сохраняем замещение…','pending');
     try {
-      const {data,error}=await supabaseClient.rpc('school_absence_action',{action:kind,args:{...args,expectedVersion:cloudStateVersion}});
+      const {data,error}=await cloudRequest(supabaseClient.rpc('school_absence_action',{action:kind,args:{...args,expectedVersion:cloudStateVersion}}));
       if(error) throw new Error(error.message);
       const session=state.sessionEmployeeId,active=state.activeEmployeeId;
       const remote=migrateState(data.payload);
@@ -78,7 +78,7 @@
     const button=event.target.closest('[data-absence-action]');if(!button)return;
     if(button.dataset.absenceAction==='open')open();
     if(button.dataset.absenceAction==='cancel' && confirm('Отменить весь период отсутствия? Часы вернутся исходному преподавателю, а часы замещения исключатся. История оценок замещения останется в базе.'))await action('cancel',{absenceId:button.dataset.absenceId});
-    if(button.dataset.absenceAction==='print' && await ensureCloudSaved()) {delete document.body.dataset.journalPrint;document.body.classList.add('printing-substitutions');window.print();}
+    if(button.dataset.absenceAction==='print' && preparePrint()) {delete document.body.dataset.journalPrint;document.body.classList.remove('printing-schedule');document.body.classList.add('printing-substitutions');window.print();}
   });
   document.addEventListener('submit',async event=>{
     const form=event.target.closest('[data-absence-form]');if(!form)return;event.preventDefault();

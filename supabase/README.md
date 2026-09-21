@@ -12,6 +12,19 @@ The website uses Supabase Auth for password verification and checked PostgreSQL 
 4. Confirm that `get_school_context` and `save_school_context` appear under **Database → Functions**.
 5. Confirm that direct access policies for `school_state` are absent.
 
+After `teacher_groups.sql`, run `save_performance.sql` (also after replacing the save function or
+lesson validator). It caches participant permissions and indexes historical lesson lookups once per
+request instead of rescanning the entire school JSON for each lesson. It preserves validation,
+conflict checks and grants. The migration is guarded, transactional and idempotent.
+On 2026-09-21 it passed `lesson-members.sql`, `journal-corrections.sql`, `teacher-groups.sql` and
+`absences.sql` tests in rolled-back transactions before deployment.
+
+The browser pins Supabase JS 2.116.0 and disables SDK retries: PT409 is handled by the application's
+three-way merge, not by repeating the same stale write. Saves have a 20-second request timeout and
+a bounded retry budget. A timeout is not an acknowledgement; pending edits remain dirty and logout
+is blocked. Print buttons run directly from the user's click. Pending edits can only be printed after
+an explicit draft confirmation and carry a draft label; printing never marks data as saved.
+
 The migration is rerunnable. It also removes legacy `password` fields from every employee in the stored JSON.
 
 ## Group lesson rosters and person-hours
