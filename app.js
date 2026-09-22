@@ -2494,11 +2494,11 @@ function journalMonthlyRows(records) {
   const rows = new Map();
   records.filter(countableRecord).forEach(r => {
     const key = [r.studentId, r.type, r.instrument || '', r.className || ''].join('|');
-    if (!rows.has(key)) rows.set(key, {name: r.studentName || studentName(r.studentId), subject: SchoolModel.subjectLabel(r), className: r.className || '', hours: {}});
+    if (!rows.has(key)) rows.set(key, {name: r.studentName || studentName(r.studentId), subject: SchoolModel.subjectLabel(r), className: journalClassLabel(r), hours: {}});
     const entry = rows.get(key), month = r.date.slice(0,7);
     entry.hours[month] = (entry.hours[month] || 0) + SchoolModel.roundHours(r.pedHours) + SchoolModel.roundHours(r.kcHours);
   });
-  return [...rows.values()].sort((a,b) => a.subject.localeCompare(b.subject,'ru') || a.name.localeCompare(b.name,'ru'));
+  return [...rows.values()].sort((a,b) => a.subject.localeCompare(b.subject,'ru') || compareJournalEntries(a,b));
 }
 
 function printJournalSection(section) {
@@ -2567,7 +2567,7 @@ function renderJournal() {
       <thead>
         <tr>
           <th class="student-cell">Фамилия и имя обучающегося</th>
-          <th class="class-cell">Класс</th>
+          <th class="class-cell" title="Класс / срок обучения в годах">Класс / срок</th>
           ${head}
           <th class="summary-cell">Пед.</th>
           <th class="summary-cell">Конц.</th>
@@ -2591,24 +2591,60 @@ function journalPupilEntries(entry) {
   entry.records.forEach(record => {
     const roster = journalLessonRoster(record);
     roster.participantIds.forEach(id => {
-      const group = state.groups.find(g => g.id === record.studentId);
-      const pupil = state.students.find(s => s.id === id);
-      const choirCourse = group?.choirLevel && (pupil?.enrollments || []).find(e => e.educationForm === 'ДПП' && (e.program === 'Хоровое пение' || e.instrument === 'Хоровое пение'));
-      const choirClass = choirCourse ? compactJournalClass(choirCourse.className) : '';
-      const pupilClass = choirClass && choirCourse.termYears && !choirClass.includes('/') ? `${choirClass}/${choirCourse.termYears}` : choirClass;
+      const pupilClass = journalClassLabel(record, id);
       if (!pupils.has(id)) pupils.set(id, {memberId: id, name: roster.participantNames[id], className: pupilClass || entry.className, records: []});
       pupils.get(id).records.push(record);
     });
   });
-  return [...pupils.values()].sort((a,b) => a.name.localeCompare(b.name, 'ru'));
+  return [...pupils.values()].sort(compareJournalEntries);
 }
 
-function compactJournalClass(value) {
+function compactJournalClass(value, termYears) {
   const label = String(value || '').trim();
-  const classMatch = label.match(/(\d+)\s*(?:класс|кл\.?)/i);
+  const compact = label.match(/^(\d+(?:\s*[–—-]\s*\d+)?)\s*\/\s*(\d+)$/);
+  if (compact) return `${compact[1].replace(/\s/g, '')}/${compact[2]}`;
+  const classMatch = label.match(/^(\d+(?:\s*[–—-]\s*\d+)?)\s*(?:класс|кл\.?|$)/i);
   if (!classMatch) return label;
-  const termMatch = label.match(/(\d+)\s*[-‑–—]?\s*лет/i);
-  return termMatch ? `${classMatch[1]}/${termMatch[1]}` : classMatch[1];
+  const term = label.match(/(\d+)\s*[-‑–—]?\s*лет/i)?.[1] || termYears;
+  const grade = classMatch[1].replace(/\s/g, '');
+  return Number(term) > 0 ? `${grade}/${Number(term)}` : grade;
+}
+
+function journalClassLabel(record, memberId) {
+  const group = state.groups.find(g => g.id === record.studentId);
+  const pupil = state.students.find(s => s.id === (memberId || record.studentId));
+  const stored = record.className || group?.className || (!memberId ? pupil?.className : '') || '';
+  const label = compactJournalClass(stored, record.termYears || group?.termYears);
+  if (!memberId && (label.includes('/') || group || record.participantKind === 'group')) return label;
+  let courses = pupil?.enrollments || [];
+  // Resolve the actual course, never use another instrument's class or guess its term.
+  const exact = !memberId && record.enrollmentId && SchoolModel.courses(pupil, record.employeeId).find(e => e.id === record.enrollmentId);
+  if (exact) courses = [exact];
+  else {
+    if (record.educationForm) courses = courses.filter(e => !e.educationForm || e.educationForm === record.educationForm);
+    if (group?.choirLevel) courses = courses.filter(e => e.program === 'Хоровое пение' || e.instrument === 'Хоровое пение');
+    else {
+      if (record.instrument) courses = courses.filter(e => e.instrument === record.instrument);
+      if (record.program) courses = courses.filter(e => e.program === record.program);
+    }
+    const grade = label.match(/^(\d+)(?:\/\d+)?$/)?.[1];
+    if (grade && !(memberId && group?.choirLevel)) courses = courses.filter(e => compactJournalClass(e.className).split('/')[0] === grade);
+    const sameSubject = courses.filter(e => (e.subject || 'Специальность') === record.type);
+    if (sameSubject.length) courses = sameSubject;
+  }
+  const labels = [...new Set(courses.map(e => compactJournalClass(e.className, e.termYears)).filter(Boolean))];
+  if (labels.length === 1) {
+    if (memberId || !label) return labels[0];
+    // Keep the historical class from the journal, supplement only a matching term.
+    if (labels[0].split('/')[0] === label) return labels[0];
+  }
+  return label;
+}
+
+function compareJournalEntries(a, b) {
+  const grade = entry => Number(compactJournalClass(entry.className).match(/^(\d+)/)?.[1] || Number.MAX_SAFE_INTEGER);
+  return grade(a) - grade(b) || String(a.name || '').localeCompare(String(b.name || ''), 'ru')
+    || String(a.instrument || '').localeCompare(String(b.instrument || ''), 'ru');
 }
 
 function compactJournalInstrument(value) {
@@ -2741,7 +2777,7 @@ function journalSections(records) {
         subject,
         studentId: record.studentId,
         name: record.studentName || studentName(record.studentId),
-        className: record.className || participantById(record.studentId)?.className || "",
+        className: journalClassLabel(record),
         instrument,
         records: []
       });
@@ -2756,7 +2792,7 @@ function journalSections(records) {
       .map((name) => {
         const entries = formEntries
           .filter((entry) => entry.subject === name)
-          .sort((a, b) => a.name.localeCompare(b.name, "ru") || a.instrument.localeCompare(b.instrument, "ru"));
+          .sort(compareJournalEntries);
         const entryCounts = entries.reduce((counts, entry) => counts.set(entry.studentId, (counts.get(entry.studentId) || 0) + 1), new Map());
         return {name, entries: entries.map(entry => ({...entry, showInstrument: entryCounts.get(entry.studentId) > 1}))};
       });

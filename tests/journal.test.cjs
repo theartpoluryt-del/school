@@ -29,7 +29,7 @@ function fixture() {
     'journalRosterLabel','renderPersonHoursTotal','renderLessonRosterPrintReport','journalTotals',
     'renderJournalTotal','countableRecord','countableStatus','saveLessonMembers','gradeValues','clearLegacyAttendance',
     'journalRosterCandidates','openJournalRoster','saveJournalRoster','resetJournalRoster','setGrade','lessonMemberCheckboxes',
-    'journalPupilEntries','compactJournalClass','compactJournalInstrument','renderJournalEntry','journalSections','compareJournalSubjects','sum',
+    'journalPupilEntries','compactJournalClass','journalClassLabel','compareJournalEntries','compactJournalInstrument','renderJournalEntry','journalSections','compareJournalSubjects','sum',
     'journalHasTopic','saveJournalTopic','resetJournalHours','journalMonthlyRows'].forEach(n=>load(n,ctx));
   return ctx;
 }
@@ -159,7 +159,7 @@ test('mixed choir pupils display their own choir class, not the band or another 
   c.state.students[0].enrollments=[{instrument:'Флейта',className:'7 кл',educationForm:'ДПП'},
     {program:'Хоровое пение',className:'2 класс · 8-летний срок обучения',educationForm:'ДПП'}];
   const pupils=c.journalPupilEntries({className:'2–4/8',records:[c.state.records[0]]});
-  assert.equal(pupils[0].className,'2/8');
+  assert.equal(pupils.find(p=>p.memberId===c.state.students[0].id).className,'2/8');
 });
 function subgroupFixture() {
   const c=fixture();
@@ -295,6 +295,41 @@ test('journal class labels use compact class and study-term notation',()=>{
   assert.equal(c.compactJournalClass('Подготовительный класс'),'Подготовительный класс');
   const html=c.renderJournalEntry({name:'A',className:'1 класс · 5-летний срок обучения',records:[]},[]);
   assert(html.includes('<td class="class-cell" title="1 класс · 5-летний срок обучения">1/5</td>'));
+});
+
+test('journal sorts by numeric class within a subject, then by pupil name',()=>{
+  const c=fixture();
+  const records=[['a','Абрамова','8 кл'],['z','Яковлева','1 класс · 8-летний срок обучения'],
+    ['b','Борисова','2/5'],['v','Васильева','1/8'],['n','Без класса','']].map(([studentId,studentName,className])=>
+    ({studentId,studentName,className,type:'Ансамбль',educationForm:'ДПП',date:'2026-09-01',status:'conducted'}));
+  const entries=c.journalSections(records)[0].subjects[0].entries;
+  assert.deepEqual(Array.from(entries,e=>e.studentId),['v','z','b','a','n']);
+  assert.deepEqual(Array.from(c.journalMonthlyRows(records),e=>e.name),['Васильева','Яковлева','Борисова','Абрамова','Без класса']);
+  assert.ok(c.renderJournalEntry(entries[1],[]).includes('>1/8</td>'));
+});
+
+test('journal obtains study term from the matching instrument without changing historical class',()=>{
+  const c=fixture();
+  c.state.students=[{id:'s',enrollments:[
+    {id:'fl',employeeIds:['t'],instrument:'Флейта',className:'6 кл',termYears:8},
+    {id:'sx',employeeIds:['t'],instrument:'Саксофон',className:'3 кл',termYears:5}]}];
+  const r={studentId:'s',employeeId:'t',type:'Ансамбль',className:'3 кл',instrument:'Саксофон'};
+  assert.equal(c.journalClassLabel(r),'3/5');
+  assert.equal(c.journalClassLabel({...r,className:'6 кл',instrument:'Флейта'}),'6/8');
+  assert.equal(c.journalClassLabel({...r,className:'2 кл',enrollmentId:'sx'}),'2');
+  assert.equal(c.journalClassLabel({...r,className:'3/8'}),'3/8','explicit historical term is preserved');
+  assert.equal(c.compactJournalClass('1',8),'1/8');
+  assert.equal(c.compactJournalClass('2 – 4 класс · 8-летний срок обучения'),'2–4/8');
+});
+
+test('mixed-class group pupils sort by their own course class, not alphabet or group range',()=>{
+  const c=fixture();
+  c.state.students=[{id:'a',name:'Аня',enrollments:[{program:'Хоровое пение',className:'4 кл',termYears:8}]},
+    {id:'z',name:'Яна',enrollments:[{program:'Хоровое пение',className:'2 кл',termYears:8}]}];
+  c.state.groups=[{id:'g',choirLevel:'middle',className:'2–4/8',studentIds:['a','z']}];
+  const r={studentId:'g',participantKind:'group',participantIds:['a','z'],participantNames:{a:'Аня',z:'Яна'},className:'2–4/8'};
+  const pupils=c.journalPupilEntries({className:'2–4/8',records:[r]});
+  assert.deepEqual(Array.from(pupils,p=>[p.memberId,p.className]),[['z','2/8'],['a','4/8']]);
 });
 
 test('duplicate pupil rows in one subject are disambiguated by a short instrument label',()=>{
