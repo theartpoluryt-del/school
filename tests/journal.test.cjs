@@ -29,7 +29,7 @@ function fixture() {
     'journalRosterLabel','renderPersonHoursTotal','renderLessonRosterPrintReport','journalTotals',
     'renderJournalTotal','countableRecord','countableStatus','saveLessonMembers','gradeValues','clearLegacyAttendance',
     'journalRosterCandidates','openJournalRoster','saveJournalRoster','resetJournalRoster','setGrade','lessonMemberCheckboxes',
-    'journalPupilEntries','compactJournalClass','journalClassLabel','compareJournalEntries','compactJournalInstrument','renderJournalEntry','journalSections','compareJournalSubjects','sum',
+    'journalPupilEntries','compactJournalClass','journalClassLabel','compareJournalEntries','compactJournalInstrument','renderJournalEntry','journalSections','journalProgramLabel','journalProgramSections','compareJournalSubjects','sum',
     'journalHasTopic','saveJournalTopic','resetJournalHours','journalMonthlyRows'].forEach(n=>load(n,ctx));
   return ctx;
 }
@@ -306,6 +306,59 @@ test('journal sorts by numeric class within a subject, then by pupil name',()=>{
   assert.deepEqual(Array.from(entries,e=>e.studentId),['v','z','b','a','n']);
   assert.deepEqual(Array.from(c.journalMonthlyRows(records),e=>e.name),['Васильева','Яковлева','Борисова','Абрамова','Без класса']);
   assert.ok(c.renderJournalEntry(entries[1],[]).includes('>1/8</td>'));
+});
+
+test('aesthetics and vocal pupils have separate program sections without artificial single-pupil groups',()=>{
+  const c=fixture();
+  const records=[['s1','Яна','3 кл','Общее эстетическое образование'],['s2','Анна','4 кл','Сольное пение'],
+    ['s3','Вера','1 кл','Общее эстетическое образование']].map(([studentId,studentName,className,program])=>
+    ({studentId,studentName,className,program,type:'Сценическая речь',educationForm:'ДОП'}));
+  const entries=c.journalSections(records)[0].subjects[0].entries;
+  const programs=c.journalProgramSections(entries);
+  assert.equal(programs.length,2);
+  const aesthetics=programs.find(p=>p.name==='Общее эстетическое образование');
+  assert.deepEqual(Array.from(aesthetics.entries,e=>e.studentId),['s3','s1']);
+  assert.equal(programs.find(p=>p.name==='Сольное пение').entries.length,1);
+  c.state.students=[{id:'s4',enrollments:[{id:'e',employeeIds:['t'],program:'Общее эстетическое образование',className:'5 кл',subject:'Сценическая речь',educationForm:'ДОП'}]}];
+  assert.equal(c.journalProgramLabel({studentId:'s4',employeeId:'t',className:'5 кл',type:'Сценическая речь',educationForm:'ДОП'}),'Общее эстетическое образование');
+  c.state.groups=[{id:'g',studentIds:['s4']}];
+  assert.equal(c.journalProgramLabel({studentId:'g',employeeId:'t',className:'5 кл',type:'Сценическая речь',educationForm:'ДОП'}),'Общее эстетическое образование');
+});
+
+test('subject correction and reversal update generated journal without losing grades or rosters',()=>{
+  const c=subgroupFixture();
+  c.digitsOnly=String;c.updateHoursFromTime=()=>{};
+  load('updateScheduleField',c);
+  const row=c.state.schedule[0];
+  const record=c.state.records.find(r=>r.scheduleId===row.id);
+  record.studentGrades={p1:'5'};
+  const id=record.id, roster=JSON.stringify(row.participantIds);
+  for (const subject of ['Специальность','Сценическая речь']) {
+    c.updateScheduleField({dataset:{scheduleId:row.id,scheduleField:'type'},value:subject});
+    const changed=c.state.records.find(r=>r.id===id);
+    assert.equal(changed.type,subject);
+    assert.equal(changed.studentGrades.p1,'5');
+    assert.equal(JSON.stringify(changed.participantIds),roster);
+    assert.equal(c.saved,true);
+  }
+});
+
+test('reload does not replace saved subjects while filling legacy enrollment metadata',()=>{
+  const c=fixture();
+  Object.assign(c,{structuredClone,uniqueTextValues:values=>[...new Set(values)],uniqueByIdValues:values=>[...new Set(values)],
+    normalizeScheduleTime:value=>value,digitsOnly:value=>String(value).replace(/\D/g,'')});
+  load('migrateState',c);
+  const input={students:[{id:'s',className:'3 кл',enrollments:[{id:'e',employeeIds:['t'],subject:'Сценическая речь',className:'3 кл',program:'Общее эстетическое образование'}]}],
+    schedule:[{id:'r',studentId:'s',employeeId:'t',type:'Специальность',time:'10:00-10:40'}],
+    records:[{id:'l',scheduleId:'r',studentId:'s',employeeId:'t',type:'Специальность',grade:'5'}]};
+  const loaded=c.migrateState(input);
+  assert.equal(loaded.schedule[0].type,'Специальность');
+  assert.equal(loaded.records[0].type,'Специальность');
+  assert.equal(loaded.records[0].grade,'5');
+  loaded.schedule[0].type=loaded.records[0].type='Сценическая речь';
+  const reloaded=c.migrateState(loaded);
+  assert.equal(reloaded.schedule[0].type,'Сценическая речь');
+  assert.equal(reloaded.records[0].type,'Сценическая речь');
 });
 
 test('journal obtains study term from the matching instrument without changing historical class',()=>{

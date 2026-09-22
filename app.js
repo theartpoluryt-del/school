@@ -460,7 +460,11 @@ function migrateState(source) {
     row.time = normalizeScheduleTime(row.time) || row.time;
     row.room = digitsOnly(row.room || "");
     const courses = SchoolModel.courses(data.students.find(s => s.id === row.studentId), row.employeeId);
-    if (!row.enrollmentId && courses.length === 1 && !row.archiveId && ['Специальность', 'Музыкальный инструмент'].includes(row.type)) SchoolModel.applyCourse(row, courses[0]);
+    if (!row.enrollmentId && courses.length === 1 && !row.archiveId && ['Специальность', 'Музыкальный инструмент'].includes(row.type)) {
+      const type = row.type;
+      SchoolModel.applyCourse(row, courses[0]);
+      row.type = type; // Loading must not undo the subject explicitly saved by the teacher.
+    }
   });
   const scheduleIds = new Set(data.schedule.map((row) => row.id));
   data.records = data.records.filter((record) => scheduleIds.has(record.scheduleId));
@@ -468,7 +472,11 @@ function migrateState(source) {
     const row = data.schedule.find(item => item.id === record.scheduleId);
     if (record.enrollmentId || !row?.enrollmentId || row.archiveId || !['Специальность', 'Музыкальный инструмент'].includes(record.type)) return;
     const course = SchoolModel.courses(data.students.find(student => student.id === record.studentId), record.employeeId).find(item => item.id === row.enrollmentId);
-    if (course) SchoolModel.applyCourse(record, course);
+    if (course) {
+      const type = record.type;
+      SchoolModel.applyCourse(record, course);
+      record.type = type;
+    }
   });
   data.records.forEach((record) => {
     if (record.type === "Индивидуальный урок") record.type = "Специальность";
@@ -2556,7 +2564,10 @@ function renderJournal() {
     <tr class="journal-program-row"><td colspan="${columnCount}">${escapeHtml(section.educationForm)}</td></tr>
     ${section.subjects.map((subject) => `
       <tr class="journal-subject-row"><td colspan="${columnCount}">${escapeHtml(subject.name)}</td></tr>
-      ${subject.entries.map(entry => renderJournalEntry(entry, dates)).join('')}
+      ${journalProgramSections(subject.entries).map(program => `
+        ${program.name ? `<tr class="journal-program-row"><td colspan="${columnCount}">${escapeHtml(program.name)}</td></tr>` : ''}
+        ${program.entries.map(entry => renderJournalEntry(entry, dates)).join('')}
+      `).join('')}
     `).join("")}
   `).join("");
 
@@ -2770,11 +2781,13 @@ function journalSections(records) {
     const educationForm = normalizeEducationForm(record.educationForm || educationFormForParticipant(record.studentId));
     const subject = SchoolModel.subjectLabel(record);
     const instrument = String(record.instrument || '').trim();
-    const key = [educationForm, subject, record.studentId, record.className, instrument].join("|");
+    const program = journalProgramLabel(record);
+    const key = [educationForm, subject, program, record.studentId, record.className, instrument].join("|");
     if (!entries.has(key)) {
       entries.set(key, {
         educationForm,
         subject,
+        program,
         studentId: record.studentId,
         name: record.studentName || studentName(record.studentId),
         className: journalClassLabel(record),
@@ -2798,6 +2811,40 @@ function journalSections(records) {
       });
     return { educationForm, subjects };
   }).filter((section) => section.subjects.length);
+}
+
+function journalProgramLabel(record) {
+  if (record.program) return record.program;
+  const group = state.groups.find(g => g.id === record.studentId);
+  if (group?.program) return group.program;
+  if (group) {
+    const ids = SchoolModel.memberIds(record, group).filter(id => state.students.some(s => s.id === id));
+    const names = ids.map(id => journalProgramLabel({...record, studentId: id, enrollmentId: ''}));
+    return names.length && names.every(name => name && name === names[0]) ? names[0] : '';
+  }
+  const pupil = state.students.find(s => s.id === record.studentId);
+  let courses = SchoolModel.courses(pupil, record.employeeId);
+  const exact = record.enrollmentId && courses.find(e => e.id === record.enrollmentId);
+  if (exact?.program) return exact.program;
+  if (record.educationForm) courses = courses.filter(e => e.educationForm === record.educationForm);
+  if (record.instrument) courses = courses.filter(e => e.instrument === record.instrument);
+  const grade = compactJournalClass(record.className).split('/')[0];
+  if (grade) courses = courses.filter(e => compactJournalClass(e.className).split('/')[0] === grade);
+  const subject = courses.filter(e => e.subject === record.type);
+  if (subject.length) courses = subject;
+  const programs = [...new Set(courses.map(e => e.program).filter(Boolean))];
+  return programs.length === 1 ? programs[0] : '';
+}
+
+function journalProgramSections(entries) {
+  const programs = new Map();
+  entries.forEach(entry => {
+    const name = entry.program || '';
+    if (!programs.has(name)) programs.set(name, []);
+    programs.get(name).push(entry);
+  });
+  return [...programs].sort(([a],[b]) => !a ? 1 : !b ? -1 : a.localeCompare(b,'ru'))
+    .map(([name, rows]) => ({name: name || (programs.size > 1 ? 'Без указанной программы' : ''), entries: rows.sort(compareJournalEntries)}));
 }
 
 function compareJournalSubjects(first, second) {
