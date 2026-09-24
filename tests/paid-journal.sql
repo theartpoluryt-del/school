@@ -50,10 +50,10 @@ begin
     perform public.save_paid_lesson(edited || '{"grades":{"test-a":"6"}}',(edited->>'updated_at')::timestamptz);
     raise exception 'TEST FAILED: invalid grade accepted';
   exception when invalid_parameter_value then null; end;
-  begin
-    perform public.save_paid_lesson(edited || jsonb_build_object('lesson_date',(now() at time zone 'Asia/Yekaterinburg')::date+1),(edited->>'updated_at')::timestamptz);
-    raise exception 'TEST FAILED: future completion accepted';
-  exception when invalid_parameter_value then null; end;
+  edited := public.save_paid_lesson(edited || jsonb_build_object('lesson_date',(now() at time zone 'Asia/Yekaterinburg')::date+1),(edited->>'updated_at')::timestamptz);
+  if edited->'completed'<>'true' or edited->'present_student_ids'<>'["test-a"]' or edited->'grades'<>'{"test-a":"5"}' then
+    raise exception 'TEST FAILED: future lesson marks not preserved';
+  end if;
   begin
     perform public.save_paid_course('{}');
     raise exception 'TEST FAILED: teacher course management allowed';

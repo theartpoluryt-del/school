@@ -101,9 +101,6 @@ begin
   if (lesson->>'lesson_date')::date < course.starts_on then
     raise exception 'Lesson precedes course start' using errcode='22023';
   end if;
-  if coalesce((lesson->>'completed')::boolean,false) and (lesson->>'lesson_date')::date > (now() at time zone 'Asia/Yekaterinburg')::date then
-    raise exception 'A future lesson cannot be completed' using errcode='22023';
-  end if;
   -- Retain the actual roster of an existing lesson even after a course is edited.
   roster := coalesce(old_row.students,course.students);
   select coalesce(array_agg(value),'{}') into present_ids from jsonb_array_elements_text(coalesce(lesson->'present_student_ids','[]'));
@@ -115,9 +112,6 @@ begin
   if exists(select 1 from jsonb_each_text(grade_values) g where g.value is null or g.value not in ('2-','2','2+','3-','3','3+','4-','4','4+','5-','5','5+')
     or not exists(select 1 from jsonb_array_elements(roster) s where s->>'id'=g.key)) then
     raise exception 'Invalid pupil grade' using errcode='22023';
-  end if;
-  if (cardinality(present_ids)>0 or grade_values<>'{}'::jsonb) and (lesson->>'lesson_date')::date > (now() at time zone 'Asia/Yekaterinburg')::date then
-    raise exception 'A future lesson cannot be marked' using errcode='22023';
   end if;
   if old_row.id is not null then
     update public.paid_school_lessons set lesson_date=(lesson->>'lesson_date')::date,hours=(lesson->>'hours')::numeric,

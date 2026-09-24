@@ -49,15 +49,13 @@
         if (!l.students.some(s=>s.id===p.id)) return '<td>—</td>';
         const label = `${p.name}, ${formatDate(l.lesson_date)}`;
         const present = l.present_student_ids.includes(p.id);
-        return `<td><div class="paid-cell"><input type="checkbox" data-attendance="${escapeAttr(l.id)}" data-pupil="${escapeAttr(p.id)}" aria-label="Посещение: ${escapeAttr(label)}" ${present?'checked':''} ${l.lesson_date>todayISO()?'disabled':''} />
+        return `<td><div class="paid-cell"><input type="checkbox" data-attendance="${escapeAttr(l.id)}" data-pupil="${escapeAttr(p.id)}" aria-label="Посещение: ${escapeAttr(label)}" ${present?'checked':''} />
           <select class="paid-grade" data-grade="${escapeAttr(l.id)}" data-pupil="${escapeAttr(p.id)}" aria-label="Оценка: ${escapeAttr(label)}"><option value="">·</option>${PaidModel.grades.map(g=>`<option value="${g}" ${l.grades[p.id]===g?'selected':''}>${g}</option>`).join('')}</select>
           <span class="paid-print-value">${present?'✓':'—'}${l.grades[p.id]?' / '+escapeHtml(l.grades[p.id]):''}</span></div></td>`;
       }).join('')}</tr>`).join('')}</tbody>
       <tfoot><tr><th scope="row">Проведено</th>${rows.map(l=>`<td><input type="checkbox" data-completed="${escapeAttr(l.id)}" aria-label="Проведено ${escapeAttr(formatDate(l.lesson_date))}" ${l.completed?'checked':''} /><span class="paid-print-value">${l.completed?'✓':'—'}</span></td>`).join('')}</tr>
       <tr><th scope="row">Часы</th>${rows.map(l=>`<td>${formatNumber(PaidModel.roundHours(l.hours))}</td>`).join('')}</tr></tfoot></table>`;
     setBusy(busy);
-    // Future attendance/completion cannot be recorded ahead of the actual lesson.
-    rows.filter(l=>l.lesson_date>todayISO()).forEach(l=>el('paidMatrix').querySelectorAll(`[data-attendance="${CSS.escape(l.id)}"], [data-completed="${CSS.escape(l.id)}"], [data-grade="${CSS.escape(l.id)}"]`).forEach(n=>n.disabled=true));
   }
   async function load(force = false) {
     const next = contextKey();
