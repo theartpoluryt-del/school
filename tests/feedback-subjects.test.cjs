@@ -2,14 +2,14 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
-test('requested theory and group subjects can be selected without duplicates',()=>{
+test('requested theory and orchestra subjects can be selected without duplicates',()=>{
   const source=fs.readFileSync(require.resolve('../app.js'),'utf8');
   const declaration=source.match(/const lessonTypes = .*;/)[0];
   const start=source.indexOf('function lessonTypeOptions(');
   const end=source.indexOf('\nfunction ',start+1);
   const ctx=vm.createContext({escapeAttr:String,escapeHtml:String});
   vm.runInContext(declaration+'\n'+source.slice(start,end),ctx);
-  for(const name of ['Сольфеджио','Музыкальная литература','Элементарная теория музыки','Слушание музыки','Коллективное музицирование']) {
+  for(const name of ['Сольфеджио','Музыкальная литература','Элементарная теория музыки','Слушание музыки','Коллективное музицирование','Изучение инструментов народного оркестра']) {
     const options=ctx.lessonTypeOptions(name);
     assert.ok(options.includes(`value="${name}" selected`));
     assert.equal(options.split(`value="${name}"`).length-1,1);
