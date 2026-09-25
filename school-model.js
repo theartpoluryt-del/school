@@ -10,15 +10,19 @@
       id: e.id || JSON.stringify([e.educationForm, e.instrument, e.subject || 'Специальность', e.className, employeeId])
     }));
   }
+  function courseClassLabel(e) {
+    const grade = String(e.className || '').match(/^(\d+)\s*(?:кл\.?|класс)?$/i)?.[1];
+    return grade && Number(e.termYears) > 0 ? `${grade}/${Number(e.termYears)}` : e.className;
+  }
   function courseLabel(e) {
-    return [e.subject || 'Специальность', e.instrument, e.className, e.educationForm].filter(Boolean).join(' · ');
+    return [e.subject || 'Специальность', e.instrument, courseClassLabel(e), e.educationForm].filter(Boolean).join(' · ');
   }
   function courseChoices(courses, type) {
     const wind = courses.filter(e => e.subject === 'Специальность' && ['Флейта', 'Саксофон'].includes(e.instrument));
     const simple = type === 'Специальность' && wind.length > 0;
     const items = simple ? wind : courses;
     return { simple, items: items.map(e => ({ ...e, label: simple
-      ? e.instrument + (items.filter(other => other.instrument === e.instrument).length > 1 ? ` · ${e.className}` : '')
+      ? e.instrument + (courseClassLabel(e) ? ` · ${courseClassLabel(e)}` : '')
       : courseLabel(e) })) };
   }
   function applyCourse(row, course) {

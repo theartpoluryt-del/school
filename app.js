@@ -1237,7 +1237,7 @@ function refreshModalCourses(form) {
 
 function lessonMemberCandidates(group) {
   const ids = new Set([...(group.studentIds || []), ...visibleStudents().map(s => s.id)]);
-  return state.students.filter(s => ids.has(s.id) && !s.isArchived && (!group.choirLevel || (group.candidateStudentIds || group.studentIds || []).includes(s.id))).sort((a,b) => a.name.localeCompare(b.name,'ru'));
+  return state.students.filter(s => ids.has(s.id) && !s.isArchived && (!group.choirLevel || (group.candidateStudentIds || group.studentIds || []).includes(s.id))).sort((a,b) => compareStudents(a,b,'class',state.activeEmployeeId));
 }
 
 function lessonMemberCheckboxes(group, selected, candidates = lessonMemberCandidates(group)) {
@@ -1305,7 +1305,7 @@ function journalRosterCandidates(record) {
   [...historicalIds, ...roster.participantIds].forEach(id => {
     if (!candidates.has(id)) candidates.set(id, {id, name: roster.participantNames[id] || record.participantNames?.[id] || 'Ученик не загружен'});
   });
-  return [...candidates.values()].sort((a,b) => a.name.localeCompare(b.name, 'ru'));
+  return [...candidates.values()].sort((a,b) => compareStudents(a,b,'class',state.activeEmployeeId));
 }
 
 function openJournalRoster(id) {
@@ -2127,7 +2127,7 @@ function renderLessonCard(item) {
       </div>
       <div class="lesson-details">
         <b>${escapeHtml(item.studentName)}</b>
-        <p>${escapeHtml(item.type)} · ${escapeHtml(item.className || "без класса")}</p>
+        <p>${escapeHtml(item.type)} · ${escapeHtml(journalClassLabel(item) || "без класса")}</p>
       </div>
       <span class="tag">${formatNumber(SchoolModel.roundHours(item.pedHours))} пед. / ${formatNumber(SchoolModel.roundHours(item.kcHours))} конц.</span>
     </article>
@@ -2139,8 +2139,8 @@ function renderSchedule() {
   const dayRows = employeeSchedule()
     .filter((row) => row.weekday === activeScheduleWeekday)
     .sort(compareSchedule);
-  const students = visibleStudents().sort((a, b) => a.name.localeCompare(b.name, "ru"));
-  const groups = visibleGroups().sort((a, b) => a.name.localeCompare(b.name, "ru"));
+  const students = visibleStudents().sort((a, b) => compareStudents(a, b, 'class', state.activeEmployeeId));
+  const groups = visibleGroups().sort(compareGroupsByClass);
 
   board.innerHTML = `
     <div class="schedule-toolbar">
@@ -2252,7 +2252,7 @@ function renderDraggableGroup(group) {
   return `
     <button class="schedule-student-chip group-chip" type="button" draggable="true" data-drag-participant="${group.id}" data-action="addParticipant:${group.id}" aria-label="Добавить ${escapeAttr(group.name)} в ${escapeAttr(weekdays[activeScheduleWeekday])}">
       <strong>${escapeHtml(group.name)}</strong>
-      <span>${escapeHtml(group.className || "\u0433\u0440\u0443\u043f\u043f\u0430")}</span>
+      <span>${escapeHtml(compactJournalClass(group.className, group.termYears) || "\u0433\u0440\u0443\u043f\u043f\u0430")}</span>
       ${group.choirLevel ? `<span>${(group.studentIds || []).length} уч. · ${formatNumber(group.defaultPedHours)} ч. / ${group.defaultLessonMinutes} мин · 2 раза в неделю</span>` : ''}
     </button>
   `;
@@ -2276,7 +2276,7 @@ function renderScheduleRow(row) {
         <button class="lesson-duration-button" type="button" data-action="lessonDuration:${escapeAttr(row.id)}">${row.academicHours != null ? `${formatNumber(row.lessonMinutes)} мин · отдельно от нагрузки` : 'Длительность'}</button>
       </td>
       <td class="participant-cell" data-label="Ученик / группа"><strong>${escapeHtml(participant?.name || "Не найдено")}</strong>${participant?.kind === 'group' ? membersControl : simple ? '' : courseSelect}</td>
-      <td class="class-cell" data-label="Класс">${escapeHtml(row.className || (courseOptionsFor(row.studentId, row.employeeId).length ? 'Выберите предмет' : participant?.className || ""))}</td>
+      <td class="class-cell" data-label="Класс">${escapeHtml(row.className ? journalClassLabel(row) : (courseOptionsFor(row.studentId, row.employeeId).length ? 'Выберите предмет' : compactJournalClass(participant?.className, participant?.termYears)))}</td>
       <td class="schedule-type-cell" data-label="Предмет"><select class="type-input" aria-label="Предмет" data-schedule-id="${row.id}" data-schedule-field="type">${lessonTypeOptions(row.type)}</select>${simple ? courseSelect : ''}</td>
       <td class="schedule-ped-cell" data-label="Пед."><input class="hours-input" type="text" inputmode="decimal" aria-label="Педагогические часы" value="${escapeAttr(SchoolModel.roundHours(row.pedHours))}" data-schedule-id="${escapeAttr(row.id)}" data-schedule-field="pedHours" data-hour-field /></td>
       <td class="schedule-kc-cell" data-label="Кц"><input class="hours-input" type="text" inputmode="decimal" aria-label="Концертмейстерские часы" value="${escapeAttr(SchoolModel.roundHours(row.kcHours))}" data-schedule-id="${escapeAttr(row.id)}" data-schedule-field="kcHours" data-hour-field /></td>
@@ -2388,7 +2388,7 @@ function renderSchedulePrintRow(row) {
     <tr>
       <td>${escapeHtml(weekdays[row.weekday] || "")}</td>
       <td><strong>${escapeHtml(participant?.name || "Не найдено")}</strong><small>${escapeHtml(SchoolModel.subjectLabel(row))}</small>${groupDetails}</td>
-      <td>${escapeHtml(row.className || participant?.className || "")}</td>
+      <td>${escapeHtml(journalClassLabel(row) || compactJournalClass(participant?.className, participant?.termYears))}</td>
       <td>${formatNumber(SchoolModel.roundHours(row.pedHours))}</td>
       <td>${formatNumber(SchoolModel.roundHours(row.kcHours))}</td>
       <td>${escapeHtml([row.room ? `каб. ${row.room}` : "", row.time].filter(Boolean).join(", "))}</td>
@@ -2436,7 +2436,7 @@ function addScheduleFromParticipant(participantId, weekday) {
 
 function choirGroupPicker(group) {
   const candidates = lessonMemberCandidates(group);
-  return `<p class="muted-note">${escapeHtml(group.className)} · ${formatNumber(group.defaultPedHours)} ч. / ${group.defaultLessonMinutes} мин, два раза в неделю. Распределите учеников между группами один раз. Состав подставляется в новые занятия; уже сохранённые занятия и оценки не меняются.</p>
+  return `<p class="muted-note">${escapeHtml(compactJournalClass(group.className, group.termYears))} · ${formatNumber(group.defaultPedHours)} ч. / ${group.defaultLessonMinutes} мин, два раза в неделю. Распределите учеников между группами один раз. Состав подставляется в новые занятия; уже сохранённые занятия и оценки не меняются.</p>
     <div data-member-picker><label>Поиск по фамилии<input type="search" data-member-search /></label><div class="lesson-member-list">${candidates.map(s => {
       const other = state.groups.find(g => !g.isArchived && g.id !== group.id && g.choirLevel === group.choirLevel && (g.studentIds || []).includes(s.id));
       return `<label class="checkbox-label"><input type="checkbox" name="studentIds" value="${escapeAttr(s.id)}" ${(group.studentIds || []).includes(s.id) ? 'checked' : ''} />${escapeHtml(s.name)}${other ? ` <small>— ${escapeHtml(other.name)}</small>` : ''}</label>`;
@@ -2446,7 +2446,7 @@ function choirGroupPicker(group) {
 function refreshJournalFilter(selector, placeholder, entries) {
   const select = document.querySelector(selector);
   const previous = select.value;
-  const options = [...new Map(entries.filter(([id]) => id)).entries()].sort((a,b) => a[1].localeCompare(b[1], 'ru'));
+  const options = [...new Map(entries.filter(([id]) => id)).entries()].sort((a,b) => compareClassLabels(a[1], b[1]) || a[1].localeCompare(b[1], 'ru'));
   select.innerHTML = `<option value="">${placeholder}</option>` + options.map(([id,label]) => `<option value="${escapeAttr(id)}">${escapeHtml(label)}</option>`).join('');
   select.value = options.some(([id]) => id === previous) ? previous : '';
   return select.value;
@@ -2506,7 +2506,7 @@ function journalMonthlyRows(records) {
     const entry = rows.get(key), month = r.date.slice(0,7);
     entry.hours[month] = (entry.hours[month] || 0) + SchoolModel.roundHours(r.pedHours) + SchoolModel.roundHours(r.kcHours);
   });
-  return [...rows.values()].sort((a,b) => a.subject.localeCompare(b.subject,'ru') || compareJournalEntries(a,b));
+  return [...rows.values()].sort((a,b) => compareJournalEntries(a,b) || a.subject.localeCompare(b.subject,'ru'));
 }
 
 function printJournalSection(section) {
@@ -2530,7 +2530,7 @@ function renderJournalDetails(records, month) {
   const hasTopics = sorted.some(journalHasTopic);
   return `<section class="journal-detail-section journal-topics-section"><div class="journal-section-heading"><h3>${hasTopics ? 'Темы и часы' : 'Часы занятий'} · ${heading}</h3><button class="ghost-button no-print" type="button" id="printJournalTopics" data-journal-print-section="topics">Печать тем и часов</button></div>
     <div class="journal-detail-scroll"><table class="journal-detail-table"><thead><tr><th>Дата</th><th>Время</th><th>Группа / ученик · предмет</th><th>Пед.</th><th>Кц</th>${hasTopics ? '<th>Тема урока</th>' : ''}<th class="journal-edit-column"></th></tr></thead><tbody>${sorted.map(r => `<tr>
-      <td>${formatDate(r.date)}</td><td>${escapeHtml(r.time || '')}</td><td>${escapeHtml(r.studentName || studentName(r.studentId))}<small>${escapeHtml(SchoolModel.subjectLabel(r))} · ${escapeHtml(compactJournalClass(r.className))}</small></td>
+      <td>${formatDate(r.date)}</td><td>${escapeHtml(r.time || '')}</td><td>${escapeHtml(r.studentName || studentName(r.studentId))}<small>${escapeHtml(SchoolModel.subjectLabel(r))} · ${escapeHtml(journalClassLabel(r))}</small></td>
       <td>${formatNumber(SchoolModel.roundHours(r.pedHours))}</td><td>${formatNumber(SchoolModel.roundHours(r.kcHours))}</td>${hasTopics ? `<td class="journal-topic-text">${journalHasTopic(r) ? escapeHtml(r.topic || '—') : ''}</td>` : ''}<td class="journal-edit-column">${r.status==='absent' ? escapeHtml(r.absenceLabel || 'Отсутствие') : `<button class="ghost-button" type="button" data-action="journalTopic:${escapeAttr(r.id)}" aria-label="${journalHasTopic(r) ? 'Тема и часы' : 'Часы'} ${escapeAttr(r.studentName || studentName(r.studentId))} ${escapeAttr(r.date)} ${escapeAttr(r.time || '')}">${journalHasTopic(r) ? 'Заполнить' : 'Часы'}</button>`}</td></tr>`).join('')}</tbody></table></div></section>
     <section class="journal-detail-section journal-monthly-section"><div class="journal-section-heading"><h3>Часы по месяцам · ${year}/${year+1}</h3><button class="ghost-button no-print" type="button" id="printJournalMonthly" data-journal-print-section="monthly">Печать часов по месяцам</button></div><p class="muted-note">По сформированным журналам, за полные месяцы, включая будущие занятия. «—» — нет занятий в журнале. Групповые часы не умножаются на число детей.</p>
     <div class="journal-detail-scroll"><table class="journal-detail-table"><thead><tr><th>Группа / ученик · предмет</th>${months.map(m => `<th>${escapeHtml(monthLabel(m))}</th>`).join('')}<th>Всего</th></tr></thead><tbody>${monthly.map(row => `<tr><td>${escapeHtml(row.name)}<small>${escapeHtml(row.subject)} · ${escapeHtml(compactJournalClass(row.className))}</small></td>${months.map(m => `<td>${Object.hasOwn(row.hours,m) ? formatNumber(row.hours[m]) : '—'}</td>`).join('')}<td>${formatNumber(Object.values(row.hours).reduce((a,b) => a+b,0))}</td></tr>`).join('')}</tbody><tfoot><tr><th>Итого, Пед. + Кц</th>${months.map(m => `<th>${monthly.some(r => Object.hasOwn(r.hours,m)) ? formatNumber(monthly.reduce((total,r) => total+(r.hours[m] || 0),0)) : '—'}</th>`).join('')}<th>${formatNumber(monthly.reduce((total,r) => total + Object.values(r.hours).reduce((a,b) => a+b,0),0))}</th></tr></tfoot></table></div></section>`;
@@ -2559,7 +2559,7 @@ function renderJournal() {
     return;
   }
 
-  const columnCount = dates.length + 5;
+  const columnCount = dates.length + 6;
   const rows = journalSections(records).map((section) => `
     <tr class="journal-program-row"><td colspan="${columnCount}">${escapeHtml(section.educationForm)}</td></tr>
     ${section.subjects.map((subject) => `
@@ -2582,6 +2582,7 @@ function renderJournal() {
           ${head}
           <th class="summary-cell">Пед.</th>
           <th class="summary-cell">Конц.</th>
+          <th class="summary-cell" title="Пед. + Кц за месяц для этой строки">Итого</th>
           <th class="summary-cell" title="За весь выбранный месяц, включая будущие занятия">Чел.-ч.</th>
         </tr>
       </thead>
@@ -2592,6 +2593,7 @@ function renderJournal() {
       ${renderJournalTotal("ДОП", totals.dop)}
       ${renderJournalTotal("Итого", totals.total)}
     </div>
+    ${renderJournalStudentTotals(records)}
     <p class="muted-note person-hours-note">Человеко-часы считаются за весь выбранный месяц, включая будущие занятия: длительность каждого урока округляется до ближайших 0,5 учебного часа и умножается на число учеников, независимо от явки. Для занятий с отдельной длительностью за основу берётся заданная нагрузка, а не минуты. Неучебные дни не учитываются. Состав можно исправить на конкретную дату; оценки ставятся отдельно каждому ученику. Пед. и КЦ считаются один раз за групповое занятие.</p>
     ${renderLessonRosterPrintReport(records)}
   `;
@@ -2653,9 +2655,13 @@ function journalClassLabel(record, memberId) {
 }
 
 function compareJournalEntries(a, b) {
-  const grade = entry => Number(compactJournalClass(entry.className).match(/^(\d+)/)?.[1] || Number.MAX_SAFE_INTEGER);
-  return grade(a) - grade(b) || String(a.name || '').localeCompare(String(b.name || ''), 'ru')
+  return compareClassLabels(a.className, b.className) || String(a.name || '').localeCompare(String(b.name || ''), 'ru')
     || String(a.instrument || '').localeCompare(String(b.instrument || ''), 'ru');
+}
+
+function compareClassLabels(first, second) {
+  const grade = value => Number(compactJournalClass(value).match(/^(\d+)/)?.[1] || Number.MAX_SAFE_INTEGER);
+  return grade(first) - grade(second);
 }
 
 function compactJournalInstrument(value) {
@@ -2684,6 +2690,7 @@ function renderJournalEntry(entry, dates) {
     ${dates.map(date => renderJournalCell(entry, date)).join('')}
     <td class="summary-cell">${entry.memberId ? '—' : formatNumber(sum(countable, 'pedHours'))}</td>
     <td class="summary-cell">${entry.memberId ? '—' : formatNumber(sum(countable, 'kcHours'))}</td>
+    <td class="summary-cell">${formatNumber(countable.filter(r => !entry.memberId || journalLessonRoster(r).participantIds.includes(entry.memberId)).reduce((total,r) => total + SchoolModel.lessonHours(r), 0))}</td>
     <td class="summary-cell">${renderPersonHoursTotal(countable, entry.memberId)}</td>
   </tr>${group ? journalPupilEntries(entry).map(pupil => renderJournalEntry(pupil, dates)).join('') : ''}`;
 }
@@ -2703,7 +2710,7 @@ function renderLessonRosterPrintReport(records) {
     .filter(({roster}) => roster.participantKind === 'group')
     .sort((a,b) => a.record.date.localeCompare(b.record.date) || a.record.time.localeCompare(b.record.time));
   if (!groups.length) return '';
-  return `<section class="print-roster-report"><h3>Состав групповых занятий и оценки учеников</h3><p>Человеко-часы рассчитаны за весь выбранный месяц, включая будущие занятия, по составу каждого занятия, с учётом исправлений на дату, независимо от явки. Неучебные дни не учитываются. После фамилии указана индивидуальная оценка; «—» — оценки нет.</p><table><thead><tr><th>Дата · время</th><th>Группа · предмет · класс</th><th>Ученики · оценки</th><th>Чел.-ч.</th></tr></thead><tbody>${groups.map(({record: r, roster}) => `<tr><td>${formatDate(r.date)}<br>${escapeHtml(r.time)}</td><td>${escapeHtml(r.studentName || studentName(r.studentId))}<br>${escapeHtml(SchoolModel.subjectLabel(r))} · ${escapeHtml(r.className || '')}${r.grade ? `<br>Старая общая оценка: ${escapeHtml(r.grade)}` : ''}</td><td>${roster.participantIds.map(id => `${escapeHtml(roster.participantNames[id])}: ${escapeHtml(r.studentGrades?.[id] || '—')}`).join('; ') || 'Нет состава'}</td><td>${roster.personHours === null ? 'Нет состава' : formatNumber(roster.personHours)}</td></tr>`).join('')}</tbody></table></section>`;
+  return `<section class="print-roster-report"><h3>Состав групповых занятий и оценки учеников</h3><p>Человеко-часы рассчитаны за весь выбранный месяц, включая будущие занятия, по составу каждого занятия, с учётом исправлений на дату, независимо от явки. Неучебные дни не учитываются. После фамилии указана индивидуальная оценка; «—» — оценки нет.</p><table><thead><tr><th>Дата · время</th><th>Группа · предмет · класс</th><th>Ученики · оценки</th><th>Чел.-ч.</th></tr></thead><tbody>${groups.map(({record: r, roster}) => `<tr><td>${formatDate(r.date)}<br>${escapeHtml(r.time)}</td><td>${escapeHtml(r.studentName || studentName(r.studentId))}<br>${escapeHtml(SchoolModel.subjectLabel(r))} · ${escapeHtml(journalClassLabel(r))}${r.grade ? `<br>Старая общая оценка: ${escapeHtml(r.grade)}` : ''}</td><td>${roster.participantIds.map(id => `${escapeHtml(roster.participantNames[id])}: ${escapeHtml(r.studentGrades?.[id] || '—')}`).join('; ') || 'Нет состава'}</td><td>${roster.personHours === null ? 'Нет состава' : formatNumber(roster.personHours)}</td></tr>`).join('')}</tbody></table></section>`;
 }
 
 function journalTotals(records) {
@@ -2813,6 +2820,28 @@ function journalSections(records) {
   }).filter((section) => section.subjects.length);
 }
 
+function journalStudentTotals(records) {
+  const totals = new Map();
+  records.filter(countableRecord).forEach(record => {
+    const roster = journalLessonRoster(record);
+    roster.participantIds.forEach(id => {
+      if (!totals.has(id)) totals.set(id, {id, name: roster.participantNames[id] || studentName(id), classes: new Set(), hours: 0});
+      const pupil = totals.get(id);
+      const className = journalClassLabel(record, roster.participantKind === 'group' ? id : undefined);
+      if (className) pupil.classes.add(className);
+      pupil.hours += SchoolModel.lessonHours(record);
+    });
+  });
+  return [...totals.values()].map(pupil => ({...pupil, className: [...pupil.classes].sort((a,b) => compareClassLabels(a,b) || a.localeCompare(b,'ru')).join(', ')}))
+    .sort(compareJournalEntries);
+}
+
+function renderJournalStudentTotals(records) {
+  const pupils = journalStudentTotals(records);
+  if (!pupils.length) return '';
+  return `<section class="journal-student-totals"><h3>Итого по ученикам за месяц</h3><table class="journal-detail-table"><thead><tr><th>Ученик</th><th>Класс / срок</th><th>Пед. + Кц</th></tr></thead><tbody>${pupils.map(pupil => `<tr><td>${escapeHtml(pupil.name)}</td><td>${escapeHtml(pupil.className)}</td><td>${formatNumber(pupil.hours)}</td></tr>`).join('')}</tbody></table></section>`;
+}
+
 function journalProgramLabel(record) {
   if (record.program) return record.program;
   const group = state.groups.find(g => g.id === record.studentId);
@@ -2898,10 +2927,10 @@ function renderPeople() {
     .filter((student) => teacherMatches(student.assignedEmployeeIds))
     .filter((student) => matchesStudentInstrument(student, selectedStudentInstrument))
     .filter((student) => !studentSearch || normalizeText(student.name).includes(studentSearch))
-    .sort((a, b) => compareStudents(a, b, selectedStudentSort));
+    .sort((a, b) => compareStudents(a, b, selectedStudentSort, selectedTeacherId));
   const groups = groupSource
     .filter((group) => teacherMatches(group.assignedEmployeeIds))
-    .sort((a, b) => a.name.localeCompare(b.name, "ru"));
+    .sort(compareGroupsByClass);
   const employees = state.employees
     .filter((employee) => isAdmin() || employee.id === state.sessionEmployeeId)
     .filter((employee) => !selectedEmployeeInstrument || employeeInstrumentNames(employee).includes(selectedEmployeeInstrument))
@@ -2934,7 +2963,7 @@ function renderPeople() {
     <article class="person-card compact-person-card">
       <div>
         <h3>${escapeHtml(group.name)}</h3>
-        <p>${escapeHtml(group.className || "\u0433\u0440\u0443\u043f\u043f\u0430")}</p>
+        <p>${escapeHtml(compactJournalClass(group.className, group.termYears) || "\u0433\u0440\u0443\u043f\u043f\u0430")}</p>
         <p>\u0424\u043e\u0440\u043c\u0430: ${escapeHtml(group.educationForm)}</p>
         ${group.instrument ? `<p>Направление: ${escapeHtml(group.instrument)}</p>` : ""}
         <p>Состав: ${group.studentIds.length} уч.</p>
@@ -3014,14 +3043,18 @@ function studentEducationForms(student) {
 
 function studentClassLabel(student, employeeId = isAdmin() ? '' : state.sessionEmployeeId) {
   const enrollments = (Array.isArray(student?.enrollments) ? student.enrollments : []).filter(e => !employeeId || (e.employeeIds || []).includes(employeeId));
-  const labels = uniqueTextValues(enrollments.map((entry) => {
+  const labels = uniqueTextValues(enrollments.sort((a,b) => compareClassLabels(a.className,b.className)).map((entry) => {
     const prefix = `${[entry.subject, entry.instrument].filter(Boolean).join(' · ')}: `;
-    return entry.className ? `${prefix}${entry.className}` : "";
+    return entry.className ? `${prefix}${compactJournalClass(entry.className, entry.termYears)}` : "";
   }));
-  return labels.length ? labels.join("; ") : String(student?.className || "");
+  return labels.length ? labels.join("; ") : compactJournalClass(student?.className, student?.termYears);
 }
 
-function compareStudents(first, second, sortMode) {
+function compareGroupsByClass(a, b) {
+  return compareClassLabels(a.className,b.className) || a.name.localeCompare(b.name,'ru');
+}
+
+function compareStudents(first, second, sortMode, employeeId = '') {
   const nameCompare = first.name.localeCompare(second.name, "ru");
   if (sortMode === "instrument") {
     return studentInstrumentNames(first).join(" / ").localeCompare(studentInstrumentNames(second).join(" / "), "ru") || nameCompare;
@@ -3030,9 +3063,9 @@ function compareStudents(first, second, sortMode) {
     return assignedTeacherNames(first.assignedEmployeeIds || []).localeCompare(assignedTeacherNames(second.assignedEmployeeIds || []), "ru") || nameCompare;
   }
   if (sortMode === "class") {
-    const firstClass = Number(studentClassLabel(first).match(/\d+/)?.[0] || Number.MAX_SAFE_INTEGER);
-    const secondClass = Number(studentClassLabel(second).match(/\d+/)?.[0] || Number.MAX_SAFE_INTEGER);
-    return firstClass - secondClass || nameCompare;
+    const primaryClass = student => (student.enrollments || []).filter(e => !employeeId || (e.employeeIds || []).includes(employeeId))
+      .map(e => compactJournalClass(e.className, e.termYears)).sort((a,b) => compareClassLabels(a,b))[0] || compactJournalClass(student.className,student.termYears);
+    return compareClassLabels(primaryClass(first), primaryClass(second)) || nameCompare;
   }
   return nameCompare;
 }
@@ -3474,7 +3507,8 @@ function studentPicker(selectedIds) {
 }
 
 function renderStudentPickerSelected(ids) {
-  const students = ids.map((id) => state.students.find((student) => student.id === id)).filter(Boolean);
+  const students = ids.map((id) => state.students.find((student) => student.id === id)).filter(Boolean)
+    .sort((a,b) => compareStudents(a,b,'class'));
   if (!students.length) return `<div class="muted-note">Ученики пока не выбраны.</div>`;
   return students.map((student) => `
     <span class="student-token">
@@ -3500,7 +3534,7 @@ function renderStudentPickerResults(picker) {
     .filter((student) => !student.isArchived)
     .filter((student) => isAdmin() || (student.assignedEmployeeIds || []).includes(state.sessionEmployeeId))
     .filter((student) => normalizeText(student.name).includes(query))
-    .sort((a, b) => a.name.localeCompare(b.name, "ru"))
+    .sort((a, b) => compareStudents(a,b,'class',isAdmin() ? '' : state.sessionEmployeeId))
     .slice(0, 20);
 
   results.innerHTML = matches.length ? matches.map((student) => `

@@ -22,15 +22,16 @@ function fixture() {
     formatDate:String,normalizeEducationForm:form=>form || 'ДПП',
     checkedValues:form=>form.memberIds,closeModal(){},persistAndRender:()=>{ctx.saved=true;},
     openModal:(title,html)=>{ctx.modalHtml=html;},alert:message=>{ctx.alert=message;},
-    lessonMemberCandidates:group=>ctx.state.students.filter(s=>group.studentIds.includes(s.id))
+    lessonMemberCandidates:group=>ctx.state.students.filter(s=>group.studentIds.includes(s.id)),
+    uniqueTextValues:values=>[...new Set(values.filter(Boolean))]
   });
   ['refreshJournalMonth','refreshGeneratedJournalForScheduleChange','activeScheduleForEmployeeDate',
     'gradeOptions','renderJournalCell','snapshotLessonMembers','lessonMemberIds','journalLessonRoster',
     'journalRosterLabel','renderPersonHoursTotal','renderLessonRosterPrintReport','journalTotals',
-    'renderJournalTotal','countableRecord','countableStatus','saveLessonMembers','gradeValues','clearLegacyAttendance',
+    'renderJournalTotal','journalStudentTotals','renderJournalStudentTotals','countableRecord','countableStatus','saveLessonMembers','gradeValues','clearLegacyAttendance',
     'journalRosterCandidates','openJournalRoster','saveJournalRoster','resetJournalRoster','setGrade','lessonMemberCheckboxes',
-    'journalPupilEntries','compactJournalClass','journalClassLabel','compareJournalEntries','compactJournalInstrument','renderJournalEntry','journalSections','journalProgramLabel','journalProgramSections','compareJournalSubjects','sum',
-    'journalHasTopic','saveJournalTopic','resetJournalHours','journalMonthlyRows'].forEach(n=>load(n,ctx));
+    'journalPupilEntries','compactJournalClass','journalClassLabel','compareClassLabels','compareJournalEntries','compactJournalInstrument','renderJournalEntry','journalSections','journalProgramLabel','journalProgramSections','compareJournalSubjects','sum',
+    'journalHasTopic','saveJournalTopic','resetJournalHours','journalMonthlyRows','compareStudents','studentClassLabel','compareGroupsByClass'].forEach(n=>load(n,ctx));
   return ctx;
 }
 
@@ -53,6 +54,35 @@ test('half-hour person-hours agree in monthly totals, pupil rows and print repor
   assert.ok(!report.includes('27.625'));
   assert.equal(records[0].pedHours,2.125,'reporting does not rewrite stored history');
   assert.equal(records[0].time,'10:00-11:25');
+});
+
+test('individual and group lessons contribute once per pupil to monthly totals',()=>{
+  const c=fixture();
+  c.state.students=[
+    {id:'a',name:'Аня',enrollments:[{className:'1 кл',termYears:5,subject:'Сольфеджио'}]},
+    {id:'b',name:'Борис',enrollments:[{className:'7 кл',termYears:8,subject:'Сольфеджио'}]}
+  ];
+  c.state.groups=[{id:'g',name:'Группа',studentIds:['a','b']}];
+  c.state.records=[
+    {id:'g1',studentId:'g',studentName:'Группа',employeeId:'t',date:'2026-09-08',type:'Сольфеджио',className:'1 кл',pedHours:1,kcHours:0,participantKind:'group',participantIds:['a','b'],participantNames:{a:'Аня',b:'Борис'},status:'conducted'},
+    {id:'g2',studentId:'g',studentName:'Группа',employeeId:'t',date:'2026-09-15',type:'Сольфеджио',className:'1 кл',pedHours:1.5,kcHours:0,participantKind:'group',participantIds:['a'],participantNames:{a:'Аня'},status:'planned'},
+    {id:'i1',studentId:'a',studentName:'Аня',employeeId:'t',date:'2026-09-16',type:'Музыкальный инструмент',className:'1 кл',pedHours:0.5,kcHours:0,participantKind:'student',participantIds:['a'],participantNames:{a:'Аня'},status:'conducted'}
+  ];
+  const totals=c.journalStudentTotals(c.state.records);
+  assert.deepEqual(Array.from(totals,p=>[p.name,p.hours]),[['Аня',3],['Борис',1]]);
+  assert.match(c.renderJournalStudentTotals(c.state.records),/Итого по ученикам за месяц/);
+  assert.equal(c.journalTotals(c.state.records).total.ped,3);
+});
+
+test('class lists sort numerically and show the matching study term',()=>{
+  const c=fixture();
+  const older={name:'Аня',className:'8 кл',enrollments:[{className:'8 кл',termYears:8,subject:'Сольфеджио',employeeIds:['t']}]};
+  const younger={name:'Яна',className:'1 кл',enrollments:[{className:'1 кл',termYears:5,subject:'Сольфеджио',employeeIds:['t']}]};
+  assert.deepEqual([older,younger].sort((a,b)=>c.compareStudents(a,b,'class','t')).map(s=>s.name),['Яна','Аня']);
+  assert.equal(c.studentClassLabel(younger,'t'),'Сольфеджио: 1/5');
+  assert.equal(c.studentClassLabel(older,'t'),'Сольфеджио: 8/8');
+  assert.deepEqual([{name:'Восьмой',className:'8/8'},{name:'Первый',className:'1/5'}]
+    .sort(c.compareGroupsByClass).map(g=>g.name),['Первый','Восьмой']);
 });
 
 test('Ped and KC round independently in journal, monthly summaries and schedule print',()=>{

@@ -77,11 +77,18 @@ test('same child and teacher can have distinct instruments and classes', () => {
   assert.equal(model.courses(student,'other')[0].id,'piano');
   const choices=model.courseChoices(model.courses(student,'teacher'),'Специальность');
   assert.equal(choices.simple,true);
-  assert.deepEqual(choices.items.map(e=>e.label),['Флейта','Саксофон']);
+  assert.deepEqual(choices.items.map(e=>e.label),['Флейта · 6 кл','Саксофон · 3 кл']);
   const lesson={};
   model.applyCourse(lesson,choices.items[1]);
   assert.equal(lesson.className,'3 кл');
   model.applyCourse(lesson,choices.items[0]);
   assert.equal(lesson.className,'6 кл');
   assert.equal(model.courseChoices(model.courses(student,'teacher'),'Ансамбль').simple,false);
+});
+
+test('course picker displays class with the study term when known',()=>{
+  const courses=[{subject:'Специальность',instrument:'Флейта',className:'7 кл',termYears:8},
+    {subject:'Специальность',instrument:'Саксофон',className:'1 кл',termYears:5}];
+  assert.deepEqual(model.courseChoices(courses,'Специальность').items.map(c=>c.label),['Флейта · 7/8','Саксофон · 1/5']);
+  assert.equal(model.courseLabel(courses[0]),'Специальность · Флейта · 7/8');
 });

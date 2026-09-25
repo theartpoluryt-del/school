@@ -1646,6 +1646,23 @@ th {
   margin-top: 14px;
 }
 
+.journal-student-totals {
+  margin-top: 16px;
+}
+
+.journal-student-totals h3 {
+  margin: 0 0 8px;
+}
+
+.journal-student-totals table {
+  width: 100%;
+}
+
+.journal-student-totals th:first-child,
+.journal-student-totals td:first-child {
+  text-align: left;
+}
+
 .journal-total-card {
   display: grid;
   grid-template-columns: repeat(2, auto);
@@ -1844,6 +1861,7 @@ th {
   .journal-roster-details, .journal-roster-edit, .journal-roster-label { display: none; }
   /* The journal form contains grades/dots, not lesson accounting annotations. */
   .print-lesson-details, .print-roster-report, .person-hours-note { display: none; }
+  body[data-journal-print="matrix"] .journal-student-totals { display: none; }
   .journal-lesson { display: block; }
   .panel-toolbar label { display: none; }
   @page {
