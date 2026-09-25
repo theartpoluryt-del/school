@@ -56,6 +56,20 @@ test('half-hour person-hours agree in monthly totals, pupil rows and print repor
   assert.equal(records[0].time,'10:00-11:25');
 });
 
+test('eight 35-minute individual lessons count as eight person-hours, not 7.04',()=>{
+  const c=fixture();
+  const records=Array.from({length:8},(_,i)=>({
+    id:`short-${i}`,studentId:'pupil',studentName:'Ученик',employeeId:'t',
+    date:`2026-09-${String(i+1).padStart(2,'0')}`,time:'18:30-19:05',
+    pedHours:1,kcHours:0,status:'conducted',participantKind:'student',
+    participantIds:['pupil'],participantNames:{pupil:'Ученик'}
+  }));
+  assert.equal(c.SchoolModel.lessonHours(records[0]),1);
+  assert.equal(c.renderPersonHoursTotal(records),'8');
+  assert.equal(c.journalTotals(records).total.person,8);
+  assert.equal(c.journalStudentTotals(records)[0].hours,8);
+});
+
 test('individual and group lessons contribute once per pupil to monthly totals',()=>{
   const c=fixture();
   c.state.students=[
