@@ -1,7 +1,18 @@
 (function(root) {
   'use strict';
-  const equal = (a,b) => JSON.stringify(a) === JSON.stringify(b);
   const object = x => x && typeof x === 'object' && !Array.isArray(x);
+  // JSONB may reorder object keys. Key order is not an edit; array order is.
+  function equal(a,b) {
+    if (a === b) return true;
+    if (Array.isArray(a) || Array.isArray(b)) {
+      return Array.isArray(a) && Array.isArray(b) && a.length === b.length &&
+        a.every((value,index)=>equal(value,b[index]));
+    }
+    if (!object(a) || !object(b)) return false;
+    const keys=Object.keys(a);
+    return keys.length === Object.keys(b).length &&
+      keys.every(key=>Object.prototype.hasOwnProperty.call(b,key) && equal(a[key],b[key]));
+  }
   function merge(base, local, remote, path='') {
     if (equal(local,base)) return structuredClone(remote);
     if (equal(remote,base) || equal(local,remote)) return structuredClone(local);

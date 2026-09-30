@@ -13,6 +13,43 @@ test('same-field conflicts and delete/edit conflicts never silently overwrite',(
   assert.throws(()=>SchoolSync.merge({grade:''},{grade:'4'},{grade:'5'}));
   assert.throws(()=>SchoolSync.merge([{id:'1',grade:''}],[],[{id:'1',grade:'5'}]));
 });
+
+test('JSONB key order does not turn a schedule deletion into an edit conflict',()=>{
+  const base={schedule:[{id:'lesson',type:'Специальность',participantIds:['a','b'],meta:{className:'6',term:8}}]};
+  const remote={schedule:[{meta:{term:8,className:'6'},participantIds:['a','b'],type:'Специальность',id:'lesson'}]};
+  assert.deepEqual(SchoolSync.merge(base,{schedule:[]},remote),{schedule:[]});
+  assert.deepEqual(SchoolSync.merge(base,remote,{schedule:[]}),{schedule:[]});
+});
+
+test('a committed insertion with reordered keys is accepted on save retry',()=>{
+  const local={schedule:[{id:'lesson',type:'Сольфеджио',participantIds:['a','b']}]};
+  const remote={schedule:[{participantIds:['a','b'],type:'Сольфеджио',id:'lesson'}]};
+  assert.deepEqual(SchoolSync.merge({schedule:[]},local,remote),local);
+});
+
+test('JSONB key order never hides real field, array-order or delete/edit conflicts',()=>{
+  const base={schedule:[{id:'lesson',type:'Сольфеджио',participantIds:['a','b']}]};
+  const remote={schedule:[{participantIds:['a','b'],type:'Литература',id:'lesson'}]};
+  assert.throws(()=>SchoolSync.merge(base,{schedule:[]},remote));
+  assert.throws(()=>SchoolSync.merge(base,{schedule:[{...base.schedule[0],type:'Хор'}]},remote));
+  assert.throws(()=>SchoolSync.merge(['a','b'],['b','a'],['a']));
+  assert.throws(()=>SchoolSync.merge({value:0},{value:'0'},{value:null}));
+});
+
+test('schedule deletion saves after a JSONB-reordered server refresh',async()=>{
+  let saves=0;
+  const c=fixture(async(name,args)=>{
+    if(name==='get_school_context') return {data:{updated_at:'v2',payload:{records:[],schedule:[{type:'Сольфеджио',id:'lesson'}]}}};
+    if(++saves===1) return {error:{code:'PT409',message:'conflict'}};
+    assert.equal(args.expected_updated_at,'v2');
+    assert.equal(args.new_payload.schedule.length,0);
+    return {data:{updated_at:'v3'}};
+  });
+  c.cloudBaseline={records:[],schedule:[{id:'lesson',type:'Сольфеджио'}]};
+  c.state.schedule=[];
+  assert.equal(await c.flushCloudSave(),true);
+  assert.equal(saves,2);assert.equal(c.cloudDirty,false);
+});
 function fixture(rpc) {
   const c=vm.createContext({structuredClone,SchoolSync,console:{warn(){}},window:{clearTimeout(){},setTimeout(){return 1;}},
     cloudSaveTimer:null,cloudSavePromise:null,cloudSaveInFlight:false,cloudDirty:true,cloudRevision:1,secureCloudMode:true,
