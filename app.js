@@ -1,7 +1,7 @@
 const supabaseConfig = window.SCHOOL_SUPABASE_CONFIG;
 const supabaseClient = supabaseConfig?.url && supabaseConfig?.publishableKey && window.supabase
   // Conflicts must be rebased, not replayed with the same stale version.
-  ? window.supabase.createClient(supabaseConfig.url, supabaseConfig.publishableKey, {db: {retry: false}})
+  ? window.supabase.createClient(supabaseConfig.url, supabaseConfig.publishableKey, {db: {retry: false}, global: {fetch: SchoolAuth.boundedFetch(window.fetch.bind(window))}})
   : null;
 let cloudStateId = "";
 let cloudStateVersion = "";
@@ -16,6 +16,7 @@ let cloudSavePromise = null;
 let cloudRevision = 0;
 let profileLoadError = null;
 let currentProfile = null;
+let authBusy = false;
 let modalReturnFocus = null;
 
 const weekdays = {
@@ -104,6 +105,7 @@ const titles = {
 
 tabs.forEach((tab) => tab.addEventListener("click", () => switchTab(tab.dataset.tab)));
 document.querySelector("#loginForm").addEventListener("submit", login);
+document.querySelector('#recoverLogin').addEventListener('click', recoverLogin);
 document.querySelector("#toggleLoginPassword").addEventListener("click", toggleLoginPassword);
 document.querySelector("#modalClose").addEventListener("click", closeModal);
 document.querySelector("#modalOverlay").addEventListener("click", (event) => {
@@ -595,7 +597,7 @@ async function copyNewCredentials() {
 async function loadCloudState() {
   if (!supabaseClient) return false;
 
-  const secureResult = await supabaseClient.rpc("get_school_context");
+  const secureResult = await cloudRequest(supabaseClient.rpc("get_school_context"));
   if (!secureResult.error && secureResult.data?.payload) {
     state = migrateState(secureResult.data.payload);
     cloudBaseline = cloudPayload();
@@ -649,11 +651,11 @@ async function loadCloudState() {
 }
 
 async function loadCurrentProfile(userId) {
-  const { data, error } = await supabaseClient
+  const { data, error } = await cloudRequest(supabaseClient
     .from("school_profiles")
     .select("id, username, display_name, role, is_admin")
     .eq("id", userId)
-    .single();
+    .single());
   profileLoadError = error;
   if (error || !data) {
     console.warn("Supabase profile load failed", error?.message || "profile not found");
@@ -867,10 +869,13 @@ function importSchoolData(event) {
 
 async function login(event) {
   event.preventDefault();
+  if (authBusy) return;
   const username = normalizeEmployeeUsername(document.querySelector("#loginUsername").value);
   const password = document.querySelector("#loginPassword").value;
   const submitButton = event.submitter || event.target.querySelector('button[type="submit"]');
   submitButton.disabled = true;
+  authBusy = true;
+  try {
   setLoginStatus("Проверяем данные…", "info");
 
   if (!supabaseClient) {
@@ -879,20 +884,21 @@ async function login(event) {
     return;
   }
 
-  const { data: authData, error } = await supabaseClient.auth.signInWithPassword({
+  const { data: authData, error } = await cloudRequest(supabaseClient.auth.signInWithPassword({
     email: schoolAuthEmail(username),
     password
-  });
-  if (error || !authData.user) {
+  }));
+  if (error || !authData?.user) {
     console.warn("Supabase sign-in failed", error?.message || "user not returned");
-    setLoginStatus("Неверный логин или пароль.", "error");
+    setLoginStatus(SchoolAuth.message(error), "error");
     submitButton.disabled = false;
     return;
   }
 
+  setLoginStatus('Загружаем профиль…', 'info');
   currentProfile = await loadCurrentProfile(authData.user.id);
   if (!currentProfile || normalizeEmployeeUsername(currentProfile.username) !== username) {
-    await supabaseClient.auth.signOut({ scope: "local" });
+    await cloudRequest(supabaseClient.auth.signOut({ scope: "local" }), 5000).catch(() => {});
     currentProfile = null;
     setLoginStatus(profileLoadError && profileLoadError.code !== "PGRST116"
       ? "Не удалось загрузить профиль: сервер временно недоступен. Повторите вход чуть позже."
@@ -900,8 +906,8 @@ async function login(event) {
     submitButton.disabled = false;
     return;
   }
+  setLoginStatus('Загружаем журнал…', 'info');
   if (!await loadCloudState()) {
-    await supabaseClient.auth.signOut({ scope: "local" });
     currentProfile = null;
     setLoginStatus("Не удалось загрузить школьную базу. Сервер временно недоступен; повторите вход чуть позже.", "error");
     submitButton.disabled = false;
@@ -910,7 +916,7 @@ async function login(event) {
 
   const employee = state.employees.find((item) => item.username === currentProfile.username);
   if (!employee) {
-    await supabaseClient.auth.signOut();
+    await cloudRequest(supabaseClient.auth.signOut({ scope: 'local' }), 5000).catch(() => {});
     currentProfile = null;
     setLoginStatus("Профиль сотрудника не связан со школьной базой.", "error");
     submitButton.disabled = false;
@@ -925,6 +931,23 @@ async function login(event) {
   setLoginStatus("", "");
   submitButton.disabled = false;
   render();
+  } catch (error) {
+    currentProfile = null;
+    setLoginStatus(SchoolAuth.message(error), 'error');
+  } finally {
+    authBusy = false;
+    submitButton.disabled = false;
+  }
+}
+
+function recoverLogin() {
+  if (currentUser() || cloudDirty) return;
+  // Only this project's saved sign-in is cleared; no journals or other sites.
+  SchoolAuth.clearSession(localStorage, supabaseConfig.url);
+  SchoolAuth.clearSession(sessionStorage, supabaseConfig.url);
+  const url = new URL(window.location.href);
+  url.searchParams.set('v', Date.now().toString());
+  window.location.replace(url.toString());
 }
 
 async function logout() {
@@ -968,18 +991,22 @@ async function initializeAuth() {
     setLoginStatus("Подключение к серверу не настроено.", "error");
     return;
   }
-  const { data } = await supabaseClient.auth.getSession();
+  const button = document.querySelector('#loginForm button[type="submit"]');
+  authBusy = true;
+  button.disabled = true;
+  try {
+  const { data, error } = await cloudRequest(supabaseClient.auth.getSession());
+  if (error) throw error;
   const user = data.session?.user;
   if (!user) return;
   currentProfile = await loadCurrentProfile(user.id);
   if (!currentProfile || !await loadCloudState()) {
-    await supabaseClient.auth.signOut();
     currentProfile = null;
+    setLoginStatus('Не удалось восстановить вход. Повторите вход; при повторной ошибке нажмите «Восстановить вход».', 'error');
     return;
   }
   const employee = state.employees.find((item) => item.username === currentProfile.username);
   if (!employee) {
-    await supabaseClient.auth.signOut();
     currentProfile = null;
     state = createDemoData();
     return;
@@ -988,6 +1015,13 @@ async function initializeAuth() {
   state.sessionEmployeeId = employee.id;
   state.activeEmployeeId = employee.id;
   render();
+  } catch (error) {
+    currentProfile = null;
+    setLoginStatus(SchoolAuth.message(error), 'error');
+  } finally {
+    authBusy = false;
+    button.disabled = false;
+  }
 }
 
 function switchTab(name) {

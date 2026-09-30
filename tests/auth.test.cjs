@@ -13,7 +13,8 @@ function fixture({username='admin',profileError=null,missing=false,cloudOk=true}
   const profile={id:'auth-id',username:'admin',is_admin:true};
   const button={disabled:false};
   const ctx=vm.createContext({
-    console:{warn(){}},currentProfile:null,profileLoadError:null,
+    console:{warn(){}},currentProfile:null,profileLoadError:null,authBusy:false,
+    SchoolAuth:require('../auth-network.js'),cloudRequest:r=>Promise.resolve(r),
     state:{employees:[{id:'employee-id',username:'admin'}]},
     document:{querySelector:s=>({value:s==='#loginUsername'?username:'synthetic-password'})},
     supabaseClient:{
@@ -56,4 +57,58 @@ test('login casing is normalized and own employee selected after server verifica
   assert.equal(ctx.state.activeEmployeeId,'employee-id');
   assert.equal(ctx.state.employees[0].isAdmin,true);
   assert.equal(ctx.rendered,true);
+});
+
+test('network failures and invalid credentials produce different messages and unlock login',async()=>{
+  for (const error of [{code:'invalid_credentials'}, {status:503}, {status:429}]) {
+    const {ctx,button,event}=fixture();
+    ctx.supabaseClient.auth.signInWithPassword=async()=>({data:null,error});
+    await ctx.login(event);
+    assert.equal(ctx.message.includes('Неверный логин'),error.code==='invalid_credentials');
+    assert.equal(button.disabled,false);
+    assert.equal(ctx.authBusy,false);
+    assert.equal(ctx.state.sessionEmployeeId,undefined);
+  }
+});
+
+test('hung sign-in and profile requests release the form, never granting access',async()=>{
+  for (const stage of ['auth','profile']) {
+    const {ctx,button,event}=fixture();
+    ctx.cloudRequest=r=>require('../sync-model.js').request(r,10);
+    if (stage==='auth') ctx.supabaseClient.auth.signInWithPassword=()=>new Promise(()=>{});
+    else ctx.loadCurrentProfile=()=>ctx.cloudRequest(new Promise(()=>{}));
+    await ctx.login(event);
+    assert.match(ctx.message,/слишком много времени/);
+    assert.equal(button.disabled,false);
+    assert.equal(ctx.authBusy,false);
+    assert.equal(ctx.currentProfile,null);
+    assert.equal(ctx.state.sessionEmployeeId,undefined);
+  }
+});
+
+test('double submission cannot race two account logins',async()=>{
+  const {ctx,event}=fixture();let calls=0,release;
+  ctx.supabaseClient.auth.signInWithPassword=()=>{calls++;return new Promise(resolve=>release=resolve);};
+  const pending=ctx.login(event);
+  await ctx.login(event);
+  assert.equal(calls,1);
+  release({data:null,error:{code:'invalid_credentials'}});
+  await pending;
+});
+
+test('session recovery removes only the school auth keys',()=>{
+  const removed=[];
+  require('../auth-network.js').clearSession({removeItem:key=>removed.push(key)},'https://example.supabase.co');
+  assert.deepEqual(removed,['sb-example-auth-token','sb-example-auth-token-code-verifier','sb-example-auth-token-user']);
+});
+
+test('SDK fetch timeout and caller cancellation abort the actual network request',async()=>{
+  const {boundedFetch}=require('../auth-network.js');
+  const fetcher=(_url,{signal})=>new Promise((resolve,reject)=>{
+    if(signal.aborted) reject(new Error('aborted'));
+    else signal.addEventListener('abort',()=>reject(new Error('aborted')));
+  });
+  await assert.rejects(boundedFetch(fetcher,10)('https://example.test'),/aborted/);
+  const controller=new AbortController();controller.abort();
+  await assert.rejects(boundedFetch(fetcher)('https://example.test',{signal:controller.signal}),/aborted/);
 });
