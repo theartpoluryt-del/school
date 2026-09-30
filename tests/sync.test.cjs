@@ -53,13 +53,14 @@ test('schedule deletion saves after a JSONB-reordered server refresh',async()=>{
 function fixture(rpc) {
   const c=vm.createContext({structuredClone,SchoolSync,console:{warn(){}},window:{clearTimeout(){},setTimeout(){return 1;}},
     cloudSaveTimer:null,cloudSavePromise:null,cloudSaveInFlight:false,cloudDirty:true,cloudRevision:1,secureCloudMode:true,
-    cloudReady:true,cloudStateId:'s',cloudStateVersion:'v1',cloudBaseline:{records:[]},state:{records:[],sessionEmployeeId:'t'},
+    cloudReady:true,cloudStateId:'s',cloudStateVersion:'v1',cloudBaseline:{records:[]},cloudRawBaseline:{records:[]},
+    cloudPatchEnabled:false,cloudPendingPatch:null,cloudConflict:null,state:{records:[],sessionEmployeeId:'t'},createId:()=> 'request-'+Math.random(),
     supabaseClient:{rpc,auth:{signOut:async()=>{c.signedOut=true;}}},cloudPayload:()=>structuredClone(c.state),
     migrateState:x=>structuredClone(x),setSyncStatus:(message,kind)=>{c.message=message;c.kind=kind;},
-    currentTimeLabel:()=> '12:00',render(){},alert:m=>{c.alert=m;},createDemoData:()=>({}),
+    currentTimeLabel:()=> '12:00',render(){},renderCloudAcknowledgement(){},alert:m=>{c.alert=m;},createDemoData:()=>({}),
     setLoginPasswordVisibility(){},currentProfile:null});
   const src=fs.readFileSync(require.resolve('../app.js'),'utf8');
-  for(const name of ['cloudRequest','flushCloudSave','saveCloudChanges','ensureCloudSaved','logout']) {
+  for(const name of ['cloudRequest','flushCloudSave','saveCloudChanges','saveAtomicChanges','ensureCloudSaved','logout']) {
     const start=src.indexOf(`async function ${name}(`),end=src.slice(start+1).search(/\n(?:async )?function /);
     vm.runInContext(src.slice(start,end<0?undefined:start+1+end),c);
   }
@@ -68,6 +69,70 @@ function fixture(rpc) {
 test('failed save remains dirty and prevents logout',async()=>{
   const c=fixture(async()=>({error:{code:'503',message:'offline'}}));
   await c.logout();assert.equal(c.signedOut,undefined);assert.equal(c.cloudDirty,true);assert.equal(c.kind,'error');
+});
+
+test('incremental changes ignore display defaults and preserve unknown server fields',()=>{
+  const raw={schedule:[{id:'s',type:'Хор',room:'',serverField:7}]};
+  const base={schedule:[{...raw.schedule[0],effectiveFrom:'2026-09-01',groupId:''}]};
+  const local=structuredClone(base);local.schedule[0].type='Сценическая речь';
+  const changes=SchoolSync.changes(base,local,raw);
+  assert.deepEqual(changes,[{collection:'schedule',id:'s',before:raw.schedule[0],after:{...raw.schedule[0],type:'Сценическая речь'}}]);
+  assert.deepEqual(SchoolSync.changes(base,base,raw),[]);
+});
+
+test('incremental save acknowledges exact request and adopts concurrent remote edits',async()=>{
+  const c=fixture(async(name,args)=>{
+    assert.equal(name,'save_school_changes');assert.equal(args.changes.length,1);
+    return {data:{acknowledged_request_id:args.request_id,updated_at:'v2',payload:{records:[{id:'mine',grade:'5'},{id:'other',grade:'4'}]}}};
+  });
+  c.cloudPatchEnabled=true;c.state.records=[{id:'mine',grade:'5'}];
+  assert.equal(await c.flushCloudSave(),true);assert.equal(c.cloudDirty,false);
+  assert.deepEqual(Array.from(c.state.records,x=>x.id),['mine','other']);
+});
+
+test('lost acknowledgement reuses the exact request while keeping subsequent edits',async()=>{
+  const requests=[];
+  const c=fixture(async(name,args)=>{
+    requests.push(structuredClone(args));
+    if(requests.length===1) return {error:{code:'503',message:'lost response'}};
+    return {data:{acknowledged_request_id:args.request_id,updated_at:'v'+requests.length,
+      payload:{records:requests.length===2?[{id:'mine',grade:'5'}]:[{id:'mine',grade:'4'}]}}};
+  });
+  c.cloudPatchEnabled=true;c.state.records=[{id:'mine',grade:'5'}];
+  assert.equal(await c.flushCloudSave(),false);
+  c.state.records[0].grade='4';c.cloudRevision++;
+  assert.equal(await c.flushCloudSave(),true);
+  assert.deepEqual(requests[0],requests[1]);assert.notEqual(requests[1].request_id,requests[2].request_id);
+  assert.equal(c.state.records[0].grade,'4');assert.equal(c.cloudDirty,false);
+});
+
+test('real incremental conflict stops for explicit choice without losing local edits',async()=>{
+  const c=fixture(async name=>name==='save_school_changes'?{error:{code:'PT409',message:'conflict'}}:
+    {data:{updated_at:'v2',payload:{records:[{id:'r',grade:'5'}]}}});
+  c.cloudPatchEnabled=true;c.cloudBaseline={records:[{id:'r',grade:''}]};c.cloudRawBaseline=structuredClone(c.cloudBaseline);
+  c.state.records=[{id:'r',grade:'4'}];
+  assert.equal(await c.flushCloudSave(),false);assert.equal(c.state.records[0].grade,'4');
+  assert.ok(c.cloudConflict);assert.equal(c.cloudDirty,true);
+  assert.match(c.message,/Разобрать конфликт/);
+});
+
+test('definitive rejection allows corrected input instead of replaying an invalid request forever',async()=>{
+  const requests=[];const c=fixture(async(name,args)=>{
+    requests.push(structuredClone(args));
+    if(requests.length===1)return {error:{code:'22023',message:'Invalid grade'}};
+    return {data:{updated_at:'v2',acknowledged_request_id:args.request_id,payload:{records:[{id:'r',grade:'5'}]}}};
+  });
+  c.cloudPatchEnabled=true;c.state.records=[{id:'r',grade:'bad'}];
+  assert.equal(await c.flushCloudSave(),false);assert.equal(c.cloudPendingPatch,null);
+  c.state.records[0].grade='5';
+  assert.equal(await c.flushCloudSave(),true);assert.equal(requests[1].changes[0].after.grade,'5');
+  assert.notEqual(requests[0].request_id,requests[1].request_id);
+});
+
+test('conflict resolver only selects conflicting values and keeps unrelated changes',()=>{
+  const base={records:[{id:'r',grade:'',topic:''}]},local={records:[{id:'r',grade:'4',topic:'Local topic'}]},remote={records:[{id:'r',grade:'5',topic:''}]};
+  const paths=[];const result=SchoolSync.payload(base,local,remote,c=>{paths.push(c.path);return c.local;});
+  assert.deepEqual(paths,['/records/r/grade']);assert.equal(result.records[0].grade,'4');assert.equal(result.records[0].topic,'Local topic');
 });
 test('logout waits for server acknowledgement',async()=>{
   let release;const c=fixture(()=>new Promise(r=>{release=r;}));

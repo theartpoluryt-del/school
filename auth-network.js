@@ -16,7 +16,7 @@
       if (signal?.aborted) cancel();
       else signal?.addEventListener('abort', cancel, {once: true});
       const timer = setTimeout(() => controller.abort(), timeoutMs);
-      try { return await fetcher(input, {...options, signal: controller.signal}); }
+      try { return await fetcher(input, {...options, cache: 'no-store', signal: controller.signal}); }
       finally { clearTimeout(timer); signal?.removeEventListener('abort', cancel); }
     };
   }

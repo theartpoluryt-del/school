@@ -2,6 +2,11 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
+test('Auth and profile requests bypass browser HTTP caches',async()=>{
+  let options;const fetcher=require('../auth-network.js').boundedFetch(async(_,o)=>{options=o;return {ok:true};});
+  await fetcher('https://example.invalid/auth/v1/user',{cache:'force-cache'});
+  assert.equal(options.cache,'no-store');
+});
 const source=fs.readFileSync(require.resolve('../app.js'),'utf8');
 function load(name,context) {
   const match=new RegExp(`(?:async )?function ${name}\\(`).exec(source);

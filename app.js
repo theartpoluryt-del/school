@@ -12,6 +12,10 @@ let cloudSaveInFlight = false;
 let cloudSaveQueued = false;
 let cloudDirty = false;
 let cloudBaseline = null;
+let cloudRawBaseline = null;
+let cloudPatchEnabled = false;
+let cloudPendingPatch = null;
+let cloudConflict = null;
 let cloudSavePromise = null;
 let cloudRevision = 0;
 let profileLoadError = null;
@@ -146,6 +150,7 @@ document.querySelector('#journalDetails').addEventListener('click', (event) => {
 });
 window.addEventListener('afterprint', () => { delete document.body.dataset.journalPrint; });
 document.querySelector('#retryCloudSave')?.addEventListener('click', () => flushCloudSave());
+document.querySelector('#resolveCloudConflict')?.addEventListener('click', openCloudConflict);
 window.addEventListener('online', () => { if (cloudDirty) flushCloudSave(); });
 document.querySelector('#journalInstrument').addEventListener('change', renderJournal);
 document.querySelector('#journalSubject').addEventListener('change', renderJournal);
@@ -607,6 +612,10 @@ async function loadCloudState() {
   if (!secureResult.error && secureResult.data?.payload) {
     state = migrateState(secureResult.data.payload);
     cloudBaseline = cloudPayload();
+    cloudRawBaseline = structuredClone(secureResult.data.payload);
+    cloudPatchEnabled = secureResult.data.patch_save === true;
+    cloudPendingPatch = null;
+    cloudConflict = null;
     cloudDirty = false;
     cloudStateId = secureResult.data.id;
     cloudStateVersion = secureResult.data.updated_at;
@@ -700,6 +709,7 @@ async function saveCloudChanges() {
   setSyncStatus("Сохраняем…", "pending");
   try {
     const deadline = Date.now() + 60000;
+    if (secureCloudMode && cloudPatchEnabled) return await saveAtomicChanges(deadline);
     for (let attempt=0; attempt<3 && cloudDirty; attempt++) {
     if (Date.now() >= deadline) throw new Error('Сервер не успел подтвердить сохранение. Повторите попытку.');
     const sent=cloudPayload(), revision=cloudRevision;
@@ -749,6 +759,99 @@ async function saveCloudChanges() {
   }
 }
 
+async function saveAtomicChanges(deadline) {
+  if (cloudConflict) throw new Error('Выберите, какую версию спорных изменений сохранить: нажмите «Разобрать конфликт».');
+  for (let attempt=0; attempt<3 && cloudDirty; attempt++) {
+    if (Date.now()>=deadline) throw new Error('Сервер не успел подтвердить сохранение. Повторите попытку.');
+    if (!cloudPendingPatch) {
+      const sent=cloudPayload();
+      const changes=SchoolSync.changes(cloudBaseline,sent,cloudRawBaseline);
+      if (!changes.length) { cloudDirty=false; break; }
+      cloudPendingPatch={id:createId(),changes,sent};
+    }
+    const pending=cloudPendingPatch;
+    const {data,error}=await cloudRequest(supabaseClient.rpc('save_school_changes',{
+      changes:pending.changes,request_id:pending.id
+    }),Math.min(20000,deadline-Date.now()));
+    if (error) {
+      if (error.code==='PT409') {
+        const latest=await cloudRequest(supabaseClient.rpc('get_school_context'));
+        if(latest.error || !latest.data?.payload) throw new Error('Не удалось загрузить изменения другого сеанса. Повторите сохранение.');
+        const remote=migrateState(latest.data.payload);
+        const conflicts=[];
+        const combined=SchoolSync.payload(cloudBaseline,state,remote,c=>{conflicts.push(c);return c.remote;});
+        cloudPendingPatch=null;
+        if(conflicts.length) {
+          cloudConflict={remote,raw:latest.data.payload,version:latest.data.updated_at};
+          throw new Error('Есть изменения одного поля в двух сеансах. Нажмите «Разобрать конфликт» — ваши правки не потеряны.');
+        }
+        state=combined;cloudBaseline=structuredClone(remote);cloudRawBaseline=structuredClone(latest.data.payload);
+        cloudStateVersion=latest.data.updated_at;renderCloudAcknowledgement();continue;
+      }
+      // A validation/permission rejection is definitive: let corrected input form
+      // a new request. Network errors/timeouts retain the exact idempotent request.
+      if (['22023','42501','23505','23503','23514'].includes(error.code)) cloudPendingPatch=null;
+      throw new Error(error.message || 'Сервер отклонил сохранение.');
+    }
+    if(data?.acknowledged_request_id!==pending.id || !data?.payload || !data?.updated_at)
+      throw new Error('Сервер не подтвердил сохранение. Повторите попытку.');
+    const remote=migrateState(data.payload), conflicts=[];
+    const combined=SchoolSync.payload(pending.sent,state,remote,c=>{conflicts.push(c);return c.remote;});
+    cloudPendingPatch=null;
+    if(conflicts.length) {
+      // The acknowledged request is saved. Keep edits made while it was in flight.
+      cloudBaseline=pending.sent;
+      cloudConflict={remote,raw:data.payload,version:data.updated_at};
+      throw new Error('Сохранение подтверждено, но новые правки пересеклись с другим сеансом. Нажмите «Разобрать конфликт».');
+    }
+    state=combined;cloudBaseline=structuredClone(remote);cloudRawBaseline=structuredClone(data.payload);
+    cloudStateVersion=data.updated_at;
+    cloudDirty=SchoolSync.changes(cloudBaseline,cloudPayload(),cloudRawBaseline).length>0;
+    renderCloudAcknowledgement();
+  }
+  if(cloudDirty) throw new Error('Остались неподтверждённые изменения. Повторите сохранение.');
+  setSyncStatus(`Сохранено в ${currentTimeLabel()}`,'saved');return true;
+}
+
+function renderCloudAcknowledgement() {
+  // An acknowledgement must not replace a focused editor with a fresh DOM tree.
+  if (!globalThis.document?.activeElement?.matches('input,textarea,select,[contenteditable]')) render();
+}
+
+function cloudConflictLabel(path) {
+  const [,collection,id,field,pupilId]=path.split('/');
+  const row=state[collection]?.find?.(item=>item.id===id) || cloudConflict?.remote?.[collection]?.find?.(item=>item.id===id);
+  const labels={schedule:'Расписание',records:'Журнал',scheduleArchives:'Архив расписания',groups:'Группа',students:'Ученик',employees:'Сотрудник',holidays:'Календарь'};
+  const fields={room:'Кабинет',time:'Время',type:'Предмет',grade:'Оценка',studentGrades:'Оценка ученика',topic:'Тема',
+    participantIds:'Состав занятия',studentIds:'Состав группы',pedHours:'Педагогические часы',kcHours:'Часы КЦ',effectiveFrom:'Дата начала',effectiveTo:'Дата окончания'};
+  const participant=[...(state.students||[]),...(state.groups||[])].find(p=>p.id===(pupilId||row?.studentId));
+  return [labels[collection]||'Данные',participant?.name||row?.name,row?.date,fields[field]||field||'Запись'].filter(Boolean).join(' · ');
+}
+
+function openCloudConflict() {
+  if(!cloudConflict) return;
+  const conflicts=[];
+  SchoolSync.payload(cloudBaseline,state,cloudConflict.remote,c=>{conflicts.push(c);return c.remote;});
+  const format=value=>value===undefined?'Удалено':typeof value==='object'?JSON.stringify(value):String(value);
+  openModal('Согласование изменений',`<p>Выберите версию каждого спорного поля. Остальные изменения объединятся автоматически.</p>
+    <form id="cloudConflictForm">${conflicts.map((c,i)=>`<fieldset><legend>${escapeHtml(cloudConflictLabel(c.path))}</legend>
+      <label><input type="radio" name="conflict${i}" value="local" required /> Моя версия: ${escapeHtml(format(c.local))}</label>
+      <label><input type="radio" name="conflict${i}" value="remote" required /> На сервере: ${escapeHtml(format(c.remote))}</label>
+    </fieldset>`).join('')}<button class="primary-button" type="submit">Применить выбранное и сохранить</button></form>`);
+  const openedState=structuredClone(state);
+  document.querySelector('#cloudConflictForm').addEventListener('submit',event=>{
+    event.preventDefault();const choices=new FormData(event.currentTarget);
+    const selected=new Map(conflicts.map((c,i)=>[c.path,choices.get(`conflict${i}`)]));
+    if([...selected.values()].some(v=>!['local','remote'].includes(v))) return;
+    // Recompute against live state; do not discard edits made while the dialog was open.
+    if(SchoolSync.changes(openedState,state).length) {closeModal();openCloudConflict();return;}
+    state=SchoolSync.payload(cloudBaseline,state,cloudConflict.remote,c=>c[selected.get(c.path)]);
+    cloudBaseline=structuredClone(cloudConflict.remote);cloudRawBaseline=structuredClone(cloudConflict.raw);
+    cloudStateVersion=cloudConflict.version;cloudConflict=null;cloudPendingPatch=null;
+    closeModal();persistAndRender();void flushCloudSave();
+  });
+}
+
 async function ensureCloudSaved() {
   if (globalThis.AccompanistJournal?.isBusy()) {
     alert('Дождитесь сохранения журнала КЦ.');
@@ -773,6 +876,7 @@ function setSyncStatus(message, kind) {
   status.textContent = message;
   status.dataset.kind = kind;
   document.querySelector('#retryCloudSave')?.classList.toggle('is-hidden', kind !== 'error');
+  document.querySelector('#resolveCloudConflict')?.classList.toggle('is-hidden', !cloudConflict);
 }
 
 function preparePrint() {
@@ -964,6 +1068,7 @@ async function logout() {
   cloudReady = false;
   cloudStateId = "";
   cloudStateVersion = "";
+  cloudRawBaseline=null;cloudPendingPatch=null;cloudConflict=null;cloudPatchEnabled=false;
   secureCloudMode = false;
   setLoginPasswordVisibility(false);
   render();

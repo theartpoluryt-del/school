@@ -30,6 +30,7 @@
       state=SchoolSync.payload(cloudBaseline,state,remote);
       state.sessionEmployeeId=session;state.activeEmployeeId=active;
       cloudStateVersion=data.updated_at;cloudBaseline=structuredClone(remote);
+      cloudRawBaseline=structuredClone(data.payload);cloudPendingPatch=null;cloudConflict=null;
       setSyncStatus('Замещение сохранено','saved');closeModal();render();return true;
     } catch(error) {
       const labels={

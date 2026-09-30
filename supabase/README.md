@@ -25,6 +25,28 @@ a bounded retry budget. A timeout is not an acknowledgement; pending edits remai
 is blocked. Print buttons run directly from the user's click. Pending edits can only be printed after
 an explicit draft confirmation and carry a draft label; printing never marks data as saved.
 
+## Incremental, conflict-safe saves (2026-09-30)
+
+Apply `atomic_changes.sql` after `save_performance.sql`. The getter advertises `patch_save=true`;
+new clients send only changed rows to `save_school_changes`, with raw before-values and a unique
+request ID. The server merges independent fields under a transaction lock and runs the existing
+teacher/group/roster validation. An unrelated teacher's save no longer invalidates the request.
+The main storage is still `school_state`; this is not a migration to relational lesson tables.
+
+Private `school_sync.receipts` make retries after lost acknowledgements idempotent. They contain
+request hashes, not journal payloads, and are inaccessible to browser roles. Real same-field or
+delete/edit conflicts remain protected; the UI offers an explicit choice of versions. The UI keeps
+the exact pending request across a timeout, but a definitive validation rejection allows corrected
+input to form a new request. Display-only migrations/defaults never become accidental writes.
+Historical own lessons survive pupil reassignment. Existing older clients keep using the original
+version-checked RPC; reload only after confirming any pending changes are saved.
+
+Run `tests/atomic-changes.sql` as a complete transaction: it verifies real scoped teacher saves,
+independent fields, replay, conflicts, foreign-record denial and preserved journal data, then rolls
+back. Browser fetches for Auth and the data API use `cache: no-store`; authentication remains
+Supabase Auth, with no local password bypass. Supabase platform/service upgrades are separate
+dashboard operations, not part of these SQL migrations.
+
 The migration is rerunnable. It also removes legacy `password` fields from every employee in the stored JSON.
 
 ## Group lesson rosters and person-hours
