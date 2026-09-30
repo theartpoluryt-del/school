@@ -2,7 +2,7 @@
 (() => {
   const el=id=>document.getElementById(id);
   let session='',staff=[],students=[],lessons=[],key='',serial=0,accessSerial=0,loadingAccess=false,loaded=false,busy=false;
-  const context=()=>`${state.sessionEmployeeId}|${el('kcEmployee').value}|${el('kcMonth').value}`;
+  const context=()=>`${state.sessionEmployeeId}|${el('kcEmployee').value}|${el('kcMonth').value}|${cloudRevision}|${cloudStateVersion}`;
   const targetEmployee=()=>isAdmin()?el('kcEmployee').value:session;
   const status=(text,error=false)=>{
     el('kcStatus').textContent=text; el('kcStatus').classList.toggle('paid-error',error);
@@ -17,20 +17,19 @@
   }
   function controls() {
     el('kcView').querySelectorAll('button,input,select').forEach(n=>n.disabled=busy);
-    el('kcAdd').disabled=busy||!loaded;
     el('kcPrint').disabled=busy||!loaded||!lessons.length;
   }
   function draw() {
     el('kcHeading').textContent=`Журнал концертмейстера · ${staff.find(s=>s.id===el('kcEmployee').value)?.name||''} · ${el('kcMonth').value}`;
-    el('kcTotal').textContent=loaded?`Итого отработано: ${formatNumber(AccompanistModel.total(lessons))} ч. КЦ`:'';
+    el('kcTotal').textContent=loaded?`Итого: ${formatNumber(AccompanistModel.total(lessons))} ч. КЦ`:'';
     const dates=[...new Set(lessons.map(l=>l.lesson_date))].sort();
     if(!loaded||!lessons.length) {
-      el('kcMatrix').innerHTML=loaded?'<p class="empty-state">В этом месяце ещё нет записей. Добавьте отработанное занятие.</p>':'';
+      el('kcMatrix').innerHTML=loaded?'<p class="empty-state">В этом месяце нет занятий КЦ. Добавьте их в расписание с видом «Концертмейстер» и нужной датой начала.</p>':'';
       controls(); return;
     }
     el('kcMatrix').innerHTML=`<table class="paid-table kc-table"><thead><tr><th>Ученик / состав занятия</th><th>Предмет</th>${dates.map(d=>`<th>${escapeHtml(d.slice(8)+'.'+d.slice(5,7))}</th>`).join('')}<th>Итого КЦ</th></tr></thead><tbody>${AccompanistModel.rows(lessons).map(row=>`<tr>
-      <th scope="row">${row.students.map(s=>escapeHtml(s.name)).join('<br>')}</th><td>${escapeHtml(row.subject)}</td>
-      ${dates.map(d=>`<td>${row.lessons.filter(l=>l.lesson_date===d).map(l=>`<button class="kc-hours" data-kc-edit="${escapeAttr(l.id)}" aria-label="Изменить часы: ${escapeAttr(row.students.map(s=>s.name).join(', '))}, ${escapeAttr(formatDate(d))}">${formatNumber(l.hours)}</button>`).join(' ')||'—'}</td>`).join('')}
+      <th scope="row">${row.students.map(s=>escapeHtml(s.name)).join('<br>')}</th><td>${escapeHtml(row.subject)}${row.className?`<br><small>${escapeHtml(classLabel({courses:[row]}))}</small>`:''}</td>
+      ${dates.map(d=>`<td>${row.lessons.filter(l=>l.lesson_date===d).map(l=>`<button class="kc-hours" data-kc-edit="${escapeAttr(l.id)}" title="${escapeAttr(l.time||'')}" aria-label="Изменить часы: ${escapeAttr(row.students.map(s=>s.name).join(', '))}, ${escapeAttr(formatDate(d))}">${formatNumber(l.hours)}</button>`).join(' ')||'—'}</td>`).join('')}
       <td>${formatNumber(AccompanistModel.total(row.lessons))}</td></tr>`).join('')}</tbody><tfoot><tr><th colspan="2">Итого КЦ</th>${dates.map(d=>`<td>${formatNumber(AccompanistModel.total(lessons.filter(l=>l.lesson_date===d)))}</td>`).join('')}<td>${formatNumber(AccompanistModel.total(lessons))}</td></tr></tfoot></table>`;
     controls();
   }
@@ -45,7 +44,8 @@
       el('kcTab').classList.toggle('is-hidden',!staff.length);
       el('kcEmployee').closest('label').classList.toggle('is-hidden',!isAdmin()||staff.length<2);
       el('kcEmployee').innerHTML=staff.map(s=>`<option value="${escapeAttr(s.id)}">${escapeHtml(s.name)}</option>`).join('');
-      if(staff.some(s=>s.id===state.activeEmployeeId)) el('kcEmployee').value=state.activeEmployeeId;
+      if(staff.some(s=>s.id===session)) el('kcEmployee').value=session;
+      else if(staff.some(s=>s.id===state.activeEmployeeId)) el('kcEmployee').value=state.activeEmployeeId;
       if(el('kcView').classList.contains('active')) {
         if(staff.length) await load(true); else {loaded=false;students=[];lessons=[];draw();switchTab('dashboard');}
       }
@@ -61,9 +61,14 @@
   async function load(force=false) {
     if(busy) return;
     if(!staff.length) {void access();return;}
-    const next=context(); if(!force&&next===key) return;
+    let next=context(); if(!force&&next===key) return;
     key=next;const request=++serial;loaded=false;students=[];lessons=[];draw();busy=true;controls();status('Загрузка журнала КЦ…');
     try {
+      // A timetable edit must be confirmed before requesting its server-derived journal.
+      if(cloudDirty||cloudSavePromise) {
+        if(!await flushCloudSave()) throw new Error('Расписание ещё не сохранено. Повторите его сохранение, затем обновите журнал КЦ.');
+        next=context();key=next;
+      }
       if(!/^\d{4}-\d{2}$/.test(el('kcMonth').value)) throw new Error('Выберите месяц.');
       const {data,error}=await SchoolSync.request(supabaseClient.rpc('get_accompanist_journal',{target_employee:targetEmployee(),month_start:el('kcMonth').value+'-01'}));
       if(request!==serial||next!==context()) return;
@@ -80,6 +85,8 @@
   function dialog(id) {
     if(busy||!loaded) return;
     const existing=lessons.find(l=>l.id===id),initial=context(),employee=targetEmployee();
+    if(!existing) return;
+    const linked=!!existing.source_key;
     const lessonId=existing?.id||crypto.randomUUID(),selected=new Set(existing?.students.map(s=>s.id)||[]);
     const roster=[...new Map([...students,...(existing?.students||[]).filter(s=>!students.some(p=>p.id===s.id))].map(s=>[s.id,s])).values()];
     const month=el('kcMonth').value;
@@ -88,7 +95,8 @@
       <label>Часы КЦ<input name="hours" type="number" required min="0.5" max="24" step="0.5" value="${existing?.hours||''}" placeholder="Например, 1,5" /></label></div>
       <label>Предмет<input name="subject" required maxlength="120" list="kcSubjects" value="${escapeAttr(existing?.subject||'')}" placeholder="Например, Хор" /></label>
       <datalist id="kcSubjects">${lessonTypes.map(s=>`<option value="${escapeAttr(s)}"></option>`).join('')}</datalist>
-      <p>Выберите ученика или состав совместного занятия. Часы всего занятия учитываются один раз.</p>
+      <p>${linked?'Дата, предмет и состав взяты из расписания. Меняйте их в расписании; здесь можно исправить часы или убрать непроведённое занятие.':'Ранее сохранённое занятие. Часы совместного занятия учитываются один раз.'}</p>
+      ${linked?`<p>${escapeHtml(existing.time||'')} · ${escapeHtml(classLabel({courses:[existing]}))}</p>`:''}
       <label>Поиск среди всех учеников<input id="kcStudentSearch" type="search" placeholder="Фамилия, класс или инструмент" /></label>
       <p id="kcSelectedCount"></p><div id="kcSelected"></div><div id="kcStudentOptions" class="kc-student-options"></div>
       <p id="kcFormStatus" role="status"></p><div class="form-actions"><button class="primary-button" type="submit">Сохранить</button>${existing?'<button id="kcRemove" class="danger-button" type="button">Удалить занятие</button>':''}</div></form>`);
@@ -104,12 +112,22 @@
     el('kcStudentOptions').addEventListener('change',event=>{const t=event.target;if(t.type==='checkbox') {t.checked?selected.add(t.value):selected.delete(t.value);picker();}});
     el('kcSelected').addEventListener('click',event=>{const b=event.target.closest('[data-kc-remove]');if(b){selected.delete(b.dataset.kcRemove);picker();}});
     picker();
+    function lockSource() {
+      if(!linked) return;
+      form.elements.date.disabled=true;form.elements.subject.disabled=true;
+      ['kcStudentSearch','kcStudentOptions','kcSelected','kcSelectedCount'].forEach(id=>el(id).classList.add('is-hidden'));
+      el('kcStudentSearch').closest('label').classList.add('is-hidden');
+      el('kcSelected').classList.remove('is-hidden');
+      el('kcSelected').innerHTML=existing.students.map(s=>escapeHtml(s.name)).join(', ');
+    }
+    lockSource();
     async function save(removing=false) {
       if(busy||initial!==context()) return;
       const fields=new FormData(form);
       if(!selected.size) {el('kcFormStatus').textContent='Выберите хотя бы одного ученика.';return;}
       if(!AccompanistModel.validHours(fields.get('hours'))) {el('kcFormStatus').textContent='Часы — от 0,5 до 24 с шагом 0,5.';return;}
-      const value={id:lessonId,employee_id:employee,student_ids:[...selected],lesson_date:fields.get('date'),subject:fields.get('subject'),hours:Number(fields.get('hours')),deleted:removing};
+      const value={id:lessonId,employee_id:employee,student_ids:[...selected],lesson_date:linked?existing.lesson_date:fields.get('date'),subject:linked?existing.subject:fields.get('subject'),hours:Number(fields.get('hours')),deleted:removing,
+        source_key:existing.source_key||null,source_hash:existing.source_hash||null};
       busy=true;controls();form.querySelectorAll('input,button').forEach(n=>n.disabled=true);status('Сохранение…');
       const request=serial;
       try {
@@ -120,7 +138,7 @@
         if(!data.deleted&&data.lesson_date.startsWith(month)) lessons.push(data);
         busy=false;closeModal();status('Сохранено');draw();
       } catch(error) {if(request===serial) status(errorText(error)+' Изменения не подтверждены; можно повторить сохранение.',true);}
-      finally {if(request===serial) {busy=false;controls();form.querySelectorAll('input,button').forEach(n=>n.disabled=false);}}
+      finally {if(request===serial) {busy=false;controls();form.querySelectorAll('input,button').forEach(n=>n.disabled=false);lockSource();}}
     }
     form.addEventListener('submit',event=>{event.preventDefault();void save();});
     el('kcRemove')?.addEventListener('click',()=>{if(confirm('Убрать занятие и его часы из журнала КЦ?')) void save(true);});
@@ -138,7 +156,6 @@
   el('kcEmployee').addEventListener('change',()=>load(true));
   el('kcReload').addEventListener('click',()=>staff.length?load(true):access());
   window.addEventListener('online',()=>{if(session&&!staff.length) void access();});
-  el('kcAdd').addEventListener('click',()=>dialog());
   el('kcMatrix').addEventListener('click',event=>{const b=event.target.closest('[data-kc-edit]');if(b) dialog(b.dataset.kcEdit);});
   el('kcPrint').addEventListener('click',()=>{if(!busy&&loaded) {delete document.body.dataset.journalPrint;window.print();}});
   window.AccompanistJournal={sync,isBusy:()=>busy};sync();

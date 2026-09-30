@@ -24,7 +24,8 @@ begin
   if jsonb_array_length(result->'students')<>jsonb_array_length(source->'students') then raise exception 'Not all pupils accessible'; end if;
   if exists(select 1 from jsonb_array_elements(result->'students') s where s ? 'assignedEmployeeIds' or s ? 'grades') then raise exception 'Unnecessary data leaked'; end if;
   request:=jsonb_build_object('id',lid,'employee_id',employee,'lesson_date','2031-01-02','subject','QA joint lesson','hours',1.5,'student_ids',pupil_ids);
-  saved:=public.save_accompanist_lesson(request);
+  -- Seed one historical manual record as the DB owner; new manual rows are no longer exposed.
+  saved:=public.save_accompanist_lesson_manual(request);
   if jsonb_array_length(saved->'students')<>2 or (saved->>'hours')::numeric<>1.5 then raise exception 'Wrong joint lesson workload'; end if;
   if public.save_accompanist_lesson(request)<>saved then raise exception 'Retry is not idempotent'; end if;
   edited:=public.save_accompanist_lesson(request||'{"hours":2}',(saved->>'updated_at')::timestamptz);

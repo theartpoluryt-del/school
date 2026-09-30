@@ -8,8 +8,8 @@
   function rows(lessons) {
     const groups=new Map();
     for (const lesson of lessons.filter(l=>!l.deleted)) {
-      const key=JSON.stringify([lesson.subject,lesson.students.map(s=>s.id).sort()]);
-      if (!groups.has(key)) groups.set(key,{subject:lesson.subject,students:lesson.students,lessons:[]});
+      const key=JSON.stringify([lesson.subject,lesson.students.map(s=>s.id).sort(),lesson.className||'',lesson.termYears||'']);
+      if (!groups.has(key)) groups.set(key,{subject:lesson.subject,students:lesson.students,className:lesson.className,termYears:lesson.termYears,lessons:[]});
       groups.get(key).lessons.push(lesson);
     }
     return [...groups.values()].sort((a,b)=>a.students.map(s=>s.name).join().localeCompare(b.students.map(s=>s.name).join(),'ru'));

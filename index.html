@@ -175,10 +175,9 @@
               <label>Концертмейстер<select id="kcEmployee"></select></label>
               <label>Месяц<input id="kcMonth" type="month" /></label>
               <button class="ghost-button" type="button" id="kcReload">Обновить</button>
-              <button class="primary-button" type="button" id="kcAdd">Добавить занятие</button>
               <button class="ghost-button" type="button" id="kcPrint">Печать журнала КЦ</button>
             </div>
-            <p class="kc-help">Вносите отработанные часы с шагом 0,5. Для совместного занятия выберите всех его учеников — часы учитываются один раз.</p>
+            <p class="kc-help">Занятия за месяц берутся из расписания с видом «Концертмейстер». Часы КЦ округляются до 0,5 и учитываются один раз за занятие, независимо от количества учеников. При необходимости нажмите на часы, чтобы исправить их или убрать непроведённое занятие.</p>
             <p id="kcStatus" role="status" aria-live="polite"></p>
             <h3 id="kcHeading"></h3>
             <div class="journal-scroll" id="kcMatrix"></div>
@@ -348,9 +347,9 @@
   <script src="paid-model.js?v=20260921-3"></script>
   <script src="sync-model.js?v=20260930-1"></script>
   <script src="absence-journal.js?v=20260921-3"></script>
-  <script src="app.js?v=20260930-1"></script>
+  <script src="app.js?v=20260930-3"></script>
   <script src="paid-journal.js?v=20260924-1"></script>
-  <script src="accompanist-model.js?v=20260930-1"></script>
-  <script src="accompanist-journal.js?v=20260930-2"></script>
+  <script src="accompanist-model.js?v=20260930-3"></script>
+  <script src="accompanist-journal.js?v=20260930-3"></script>
   </body>
 </html>

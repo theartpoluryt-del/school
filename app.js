@@ -1489,7 +1489,10 @@ function updateScheduleField(field) {
   } else {
     row[key] = field.value.trim();
     if (key === "type") {
-      if (row.type === 'Дирижирование') {
+      if (row.type === 'Концертмейстер') {
+        row.kcHours=SchoolModel.lessonHours(row);row.pedHours=0;
+        updateHoursFromTime(row);
+      } else if (row.type === 'Дирижирование') {
         row.pedHours=0.5; row.kcHours=0; row.durationHours=0.5;
         delete row.academicHours; delete row.lessonMinutes;
         const start=scheduleTimeParts(row).start; const end=SchoolModel.endTime(start,0.5);

@@ -94,6 +94,27 @@ all test fixtures roll back.
 The existing main-journal JSON export does **not** include these separate tables. Database
 backups must include both paid tables as well as `school_state` and staff profiles.
 
+## Accompanist journal
+
+Apply `accompanist_journal.sql`, configure the private `school_accompanists` employee allowlist,
+then apply `accompanist_schedule.sql`. The latter also enables own KC journals for existing
+administrator profiles without changing their teaching position or assignments.
+
+The separate KC page derives the selected month's lessons from timetable rows with
+`type="Концертмейстер"`. Effective dates, archived versions, holidays, lesson rosters and
+absence/substitution periods are respected. Academic hours are rounded per lesson to 0.5;
+joint lessons count once, with no grades or person-hours. Reads do not create database records.
+Date, instrument, class and roster are inherited; change these in the timetable. Hours may be
+corrected or a non-conducted occurrence excluded in the KC journal. Stable source IDs,
+source fingerprints and optimistic locking protect corrections from stale or retried saves.
+New independent/manual entries are no longer exposed; historical manual entries are retained.
+
+Only enabled accompanists can read/write their own KC journal; administrators can manage all.
+The derivation helper and historical-save helper are not callable by browser roles. Include
+`school_accompanists` and `accompanist_lessons` in database backups; the main JSON export
+does not contain their records. `tests/accompanist.sql` and `tests/accompanist_schedule.sql`
+exercise actual server access, saves, month generation and absences in rolled-back transactions.
+
 ## Create an employee account
 
 1. Create `username@journal.local` in **Authentication → Users** with a strong temporary password.
