@@ -88,6 +88,7 @@ const views = {
   schedule: document.querySelector("#scheduleView"),
   journal: document.querySelector("#journalView"),
   paid: document.querySelector("#paidView"),
+  kc: document.querySelector("#kcView"),
   people: document.querySelector("#peopleView"),
   calendar: document.querySelector("#calendarView")
 };
@@ -96,6 +97,7 @@ const titles = {
   schedule: "Расписание",
   journal: "Журнал занятий",
   paid: "Платные услуги",
+  kc: "Журнал концертмейстера",
   people: "Списки учеников и сотрудников",
   calendar: "Учебный план"
 };
@@ -351,7 +353,7 @@ document.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("beforeunload", (event) => {
-  if (!cloudDirty && !cloudSaveTimer && !cloudSaveInFlight && !cloudSaveQueued && !globalThis.AbsenceJournal?.isBusy()) return;
+  if (!cloudDirty && !cloudSaveTimer && !cloudSaveInFlight && !cloudSaveQueued && !globalThis.AbsenceJournal?.isBusy() && !globalThis.AccompanistJournal?.isBusy()) return;
   event.preventDefault();
   event.returnValue = "";
 });
@@ -740,6 +742,10 @@ async function saveCloudChanges() {
 }
 
 async function ensureCloudSaved() {
+  if (globalThis.AccompanistJournal?.isBusy()) {
+    alert('Дождитесь сохранения журнала КЦ.');
+    return false;
+  }
   if (globalThis.AbsenceJournal?.isBusy()) {
     alert('Дождитесь сохранения замещения.');
     return false;
@@ -780,6 +786,7 @@ function currentTimeLabel() {
 
 function render() {
   renderAuthState();
+  window.AccompanistJournal?.sync();
   if (!currentUser()) { window.PaidJournal?.sync(); return; }
   ensureActiveEmployee();
   window.PaidJournal?.sync();
@@ -988,6 +995,7 @@ function switchTab(name) {
   Object.entries(views).forEach(([viewName, view]) => view.classList.toggle("active", viewName === name));
   pageTitle.textContent = titles[name];
   window.PaidJournal?.sync();
+  window.AccompanistJournal?.sync();
 }
 
 function openModal(title, body) {
@@ -1006,6 +1014,7 @@ function openModal(title, body) {
 }
 
 function closeModal() {
+  if (globalThis.AccompanistJournal?.isBusy()) return;
   document.querySelector("#modalOverlay").classList.add("is-hidden");
   document.querySelector("#modalContent").innerHTML = "";
   document.body.classList.remove("modal-open");

@@ -7,7 +7,7 @@
     <link rel="icon" href="assets/favicon.ico?v=20260901-4" sizes="any" />
     <link rel="icon" href="assets/favicon.png?v=20260901-4" type="image/png" sizes="64x64" />
     <link rel="apple-touch-icon" href="assets/school-journal-logo.png?v=20260901-4" />
-    <link rel="stylesheet" href="styles.css?v=20260925-1" />
+    <link rel="stylesheet" href="styles.css?v=20260930-1" />
   </head>
   <body>
     <section class="login-screen" id="loginScreen">
@@ -68,6 +68,7 @@
           <button class="nav-tab" type="button" data-tab="schedule">Расписание</button>
           <button class="nav-tab" type="button" data-tab="journal">Журнал</button>
           <button class="nav-tab" type="button" data-tab="paid">Платные услуги</button>
+          <button class="nav-tab is-hidden" id="kcTab" type="button" data-tab="kc">Журнал КЦ</button>
           <button class="nav-tab" type="button" data-tab="people">Списки</button>
           <button class="nav-tab" type="button" data-tab="calendar">Календарь</button>
         </nav>
@@ -165,6 +166,23 @@
             <div class="paid-print-heading" id="paidHeading"></div>
             <div class="journal-scroll" id="paidMatrix"></div>
             <p class="paid-total" id="paidTotal"></p>
+          </div>
+        </section>
+
+        <section class="tab-view" id="kcView">
+          <div class="content-panel">
+            <div class="panel-toolbar kc-controls">
+              <label>Концертмейстер<select id="kcEmployee"></select></label>
+              <label>Месяц<input id="kcMonth" type="month" /></label>
+              <button class="ghost-button" type="button" id="kcReload">Обновить</button>
+              <button class="primary-button" type="button" id="kcAdd">Добавить занятие</button>
+              <button class="ghost-button" type="button" id="kcPrint">Печать журнала КЦ</button>
+            </div>
+            <p class="kc-help">Вносите отработанные часы с шагом 0,5. Для совместного занятия выберите всех его учеников — часы учитываются один раз.</p>
+            <p id="kcStatus" role="status" aria-live="polite"></p>
+            <h3 id="kcHeading"></h3>
+            <div class="journal-scroll" id="kcMatrix"></div>
+            <p class="paid-total" id="kcTotal"></p>
           </div>
         </section>
 
@@ -330,7 +348,9 @@
   <script src="paid-model.js?v=20260921-3"></script>
   <script src="sync-model.js?v=20260930-1"></script>
   <script src="absence-journal.js?v=20260921-3"></script>
-  <script src="app.js?v=20260925-3"></script>
+  <script src="app.js?v=20260930-1"></script>
   <script src="paid-journal.js?v=20260924-1"></script>
+  <script src="accompanist-model.js?v=20260930-1"></script>
+  <script src="accompanist-journal.js?v=20260930-1"></script>
   </body>
 </html>

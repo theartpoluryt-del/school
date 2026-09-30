@@ -1775,6 +1775,16 @@ th {
 .paid-error, #paidFormError { color: #b3243e; }
 .paid-total { font-weight: 700; }
 .paid-table { border-collapse: collapse; width: 100%; }
+.kc-student-options { max-height: 250px; overflow-y: auto; border: 1px solid #d4dce3; padding: 8px; }
+.kc-student-options label { display: flex; gap: 8px; padding: 4px; align-items: center; }
+.kc-hours { padding: 4px 7px; min-width: 32px; background: #edf5f5; border: 1px solid #bdd5d5; border-radius: 5px; color: #165a60; }
+.kc-table th:first-child { max-width: 320px; }
+.kc-help, #kcStatus, #kcHeading { margin: 12px 18px; }
+#kcHeading { font-size: 16px; }
+.kc-controls { flex-wrap: wrap; }
+.kc-controls label { min-width: 160px; }
+.kc-controls label:first-child { flex: 1 1 270px; }
+#kcSelected { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 8px; }
 .paid-table th, .paid-table td { border: 1px solid #d4dce3; padding: 5px 8px; text-align: center; }
 .paid-table th:first-child { text-align: left; min-width: 200px; position: sticky; left: 0; background: #fff; z-index: 1; }
 .paid-table th { font-size: 13px; text-transform: none; }
@@ -1811,6 +1821,14 @@ th {
 .journal-section-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-bottom: 12px; }
 .journal-detail-section .journal-section-heading h3 { margin: 0; }
 @media print {
+  #kcView .kc-controls, #kcView .kc-help, #kcStatus { display: none !important; }
+  #kcView .kc-hours { background: none; border: 0; padding: 0 2px; min-width: 0; color: #000; font: inherit; }
+  #kcView .kc-table { table-layout: fixed; width: 100%; }
+  #kcView .kc-table th, #kcView .kc-table td { font-size: 9px; padding: 3px; min-width: 0; }
+  #kcView .kc-table th:first-child { position: static; width: 50mm; }
+  #kcView .kc-table th:nth-child(2) { width: 25mm; }
+  #kcView .kc-table th:last-child { width: 14mm; }
+  #kcView tr { break-inside: avoid; }
   body.printing-draft::before {
     content: "ЧЕРНОВИК — изменения не подтверждены сервером";
     display: block;
