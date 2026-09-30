@@ -3,6 +3,7 @@
   const el=id=>document.getElementById(id);
   let session='',staff=[],students=[],lessons=[],key='',serial=0,accessSerial=0,loadingAccess=false,loaded=false,busy=false;
   const context=()=>`${state.sessionEmployeeId}|${el('kcEmployee').value}|${el('kcMonth').value}`;
+  const targetEmployee=()=>isAdmin()?el('kcEmployee').value:session;
   const status=(text,error=false)=>{
     el('kcStatus').textContent=text; el('kcStatus').classList.toggle('paid-error',error);
     if(el('kcFormStatus')) el('kcFormStatus').textContent=text;
@@ -40,16 +41,21 @@
       const {data,error}=await SchoolSync.request(supabaseClient.rpc('get_accompanist_access'));
       if(request!==accessSerial||who!==session) return;
       if(error) throw error;
-      staff=data; el('kcTab').classList.toggle('is-hidden',!staff.length);
-      el('kcEmployee').closest('label').classList.toggle('is-hidden',staff.length<2);
+      staff=Array.isArray(data)?data.filter(s=>isAdmin()||s.id===session):[];
+      el('kcTab').classList.toggle('is-hidden',!staff.length);
+      el('kcEmployee').closest('label').classList.toggle('is-hidden',!isAdmin()||staff.length<2);
       el('kcEmployee').innerHTML=staff.map(s=>`<option value="${escapeAttr(s.id)}">${escapeHtml(s.name)}</option>`).join('');
       if(staff.some(s=>s.id===state.activeEmployeeId)) el('kcEmployee').value=state.activeEmployeeId;
       if(el('kcView').classList.contains('active')) {
-        if(staff.length) await load(true); else {loaded=false;draw();status('Журнал КЦ доступен назначенным концертмейстерам и администраторам.');}
+        if(staff.length) await load(true); else {loaded=false;students=[];lessons=[];draw();switchTab('dashboard');}
       }
     } catch(error) {
       if(request!==accessSerial) return;
-      el('kcTab').classList.remove('is-hidden'); status(errorText(error),true);
+      // A failed access check must never reveal a restricted section.
+      staff=[];students=[];lessons=[];loaded=false;key='';
+      el('kcEmployee').innerHTML='';el('kcTab').classList.add('is-hidden');draw();
+      status(errorText(error),true);
+      if(el('kcView').classList.contains('active')) switchTab('dashboard');
     } finally {if(request===accessSerial) loadingAccess=false;}
   }
   async function load(force=false) {
@@ -59,7 +65,7 @@
     key=next;const request=++serial;loaded=false;students=[];lessons=[];draw();busy=true;controls();status('Загрузка журнала КЦ…');
     try {
       if(!/^\d{4}-\d{2}$/.test(el('kcMonth').value)) throw new Error('Выберите месяц.');
-      const {data,error}=await SchoolSync.request(supabaseClient.rpc('get_accompanist_journal',{target_employee:el('kcEmployee').value,month_start:el('kcMonth').value+'-01'}));
+      const {data,error}=await SchoolSync.request(supabaseClient.rpc('get_accompanist_journal',{target_employee:targetEmployee(),month_start:el('kcMonth').value+'-01'}));
       if(request!==serial||next!==context()) return;
       if(error) throw error;
       students=data.students;lessons=data.lessons;loaded=true;status('');
@@ -73,7 +79,7 @@
   }
   function dialog(id) {
     if(busy||!loaded) return;
-    const existing=lessons.find(l=>l.id===id),initial=context(),employee=el('kcEmployee').value;
+    const existing=lessons.find(l=>l.id===id),initial=context(),employee=targetEmployee();
     const lessonId=existing?.id||crypto.randomUUID(),selected=new Set(existing?.students.map(s=>s.id)||[]);
     const roster=[...new Map([...students,...(existing?.students||[]).filter(s=>!students.some(p=>p.id===s.id))].map(s=>[s.id,s])).values()];
     const month=el('kcMonth').value;
@@ -131,6 +137,7 @@
   el('kcMonth').addEventListener('change',()=>load(true));
   el('kcEmployee').addEventListener('change',()=>load(true));
   el('kcReload').addEventListener('click',()=>staff.length?load(true):access());
+  window.addEventListener('online',()=>{if(session&&!staff.length) void access();});
   el('kcAdd').addEventListener('click',()=>dialog());
   el('kcMatrix').addEventListener('click',event=>{const b=event.target.closest('[data-kc-edit]');if(b) dialog(b.dataset.kcEdit);});
   el('kcPrint').addEventListener('click',()=>{if(!busy&&loaded) {delete document.body.dataset.journalPrint;window.print();}});
