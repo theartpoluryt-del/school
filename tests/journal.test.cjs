@@ -31,9 +31,63 @@ function fixture() {
     'renderJournalTotal','journalStudentTotals','renderJournalStudentTotals','countableRecord','countableStatus','saveLessonMembers','gradeValues','clearLegacyAttendance',
     'journalRosterCandidates','openJournalRoster','saveJournalRoster','resetJournalRoster','setGrade','lessonMemberCheckboxes',
     'journalPupilEntries','compactJournalClass','journalClassLabel','compareClassLabels','compareJournalEntries','compactJournalInstrument','renderJournalEntry','journalSections','journalProgramLabel','journalProgramSections','compareJournalSubjects','sum',
-    'journalHasTopic','saveJournalTopic','resetJournalHours','journalMonthlyRows','compareStudents','studentClassLabel','compareGroupsByClass'].forEach(n=>load(n,ctx));
+    'journalHasTopic','saveJournalTopic','resetJournalHours','journalMonthlyRows','compareStudents','studentClassLabel','compareGroupsByClass',
+    'syncGroupSchedule','correctScheduleStart','employeeSchedule','currentScheduleEffectiveFrom','addDaysISO','initializeScheduleCourse','updateScheduleField'].forEach(n=>load(n,ctx));
   return ctx;
 }
+
+test('a new group enters an already generated month without needing an existing schedule record',()=>{
+  const c=fixture();c.document={querySelector:()=>({value:'2026-09'})};
+  const row={id:'new',employeeId:'t',studentId:'g',weekday:1,time:'10:00-10:40',effectiveFrom:'2026-09-01',participantIds:['p'],pedHours:1};
+  c.state.schedule=[row];c.refreshGeneratedJournalForScheduleChange(row);
+  assert.equal(c.state.records.length,2);
+  assert.ok(c.state.records.every(r=>r.studentId==='g' && r.participantIds[0]==='p'));
+});
+
+test('changing group resets stale members and instrument metadata',()=>{
+  const c=fixture();c.state.groups=[{id:'new',name:'Сольфеджио 1/5',studentIds:['b'],className:'1/5',educationForm:'ДОП'}];
+  c.lessonTypes=['Сольфеджио'];c.participantById=()=>c.state.groups[0];
+  c.state.schedule=[{id:'row',employeeId:'t',studentId:'old',participantIds:['a'],enrollmentId:'old-course',instrument:'Флейта',needsCourseSelection:true}];
+  c.updateScheduleField({dataset:{scheduleId:'row',scheduleField:'studentId'},value:'new'});
+  const row=c.state.schedule[0];
+  assert.deepEqual(Array.from(row.participantIds),['b']);assert.equal(row.type,'Сольфеджио');
+  assert.equal(row.enrollmentId,undefined);assert.equal(row.instrument,undefined);assert.equal(row.needsCourseSelection,undefined);
+});
+
+test('group edits update whole-group current rows, retain selected subgroups and freeze archives',()=>{
+  const c=fixture();const group={id:'g',studentIds:['a','b','c'],educationForm:'ДОП'};
+  c.state.schedule=[{id:'whole',employeeId:'t',studentId:'g',participantIds:['a','b']},
+    {id:'subset',employeeId:'t',studentId:'g',participantIds:['a']},
+    {id:'archive',employeeId:'t',studentId:'g',participantIds:['a','b'],archiveId:'old'}];
+  c.syncGroupSchedule(group,['a','b']);
+  assert.deepEqual(Array.from(c.state.schedule[0].participantIds),['a','b','c']);
+  assert.deepEqual(Array.from(c.state.schedule[1].participantIds),['a']);
+  assert.deepEqual(Array.from(c.state.schedule[2].participantIds),['a','b']);
+});
+
+test('retroactive schedule correction brings seven groups into September and preserves authored work',()=>{
+  const c=fixture();c.state.scheduleArchives=[{id:'archive',employeeId:'t',archivedThrough:'2026-09-30'}];
+  c.state.schedule=[{id:'old',employeeId:'t',studentId:'g0',weekday:1,time:'10:00-10:40',effectiveFrom:'2026-09-01',effectiveTo:'2026-09-30',archiveId:'archive',participantIds:['p'],pedHours:1},
+    ...Array.from({length:7},(_,i)=>({id:'new'+i,previousScheduleId:i===0?'old':'',employeeId:'t',studentId:'g'+i,weekday:1,time:'10:00-10:40',effectiveFrom:'2026-10-01',participantIds:['p'],pedHours:1})),
+    {id:'outsider',employeeId:'other',effectiveFrom:'2026-10-01'}];
+  c.state.records=[{id:'grade',scheduleId:'old',employeeId:'t',studentId:'g0',date:'2026-09-14',studentGrades:{p:'5'},topic:'Тема',pedHours:1,participantIds:['p']}];
+  c.correctScheduleStart({elements:{effectiveFrom:{value:'2026-09-01'}}});
+  const september=c.state.records.filter(r=>r.date.startsWith('2026-09'));
+  assert.equal(new Set(september.map(r=>r.studentId)).size,7);
+  assert.equal(c.state.records.find(r=>r.id==='grade').studentGrades.p,'5');
+  assert.equal(c.state.records.find(r=>r.id==='grade').topic,'Тема');
+  assert.equal(c.state.schedule[0].effectiveTo,'2026-08-31');
+  assert.equal(c.state.schedule.at(-1).effectiveFrom,'2026-10-01');
+});
+
+test('removed graded occurrence stays in history without hours and can be restored',()=>{
+  const c=fixture();const record={id:'old',employeeId:'t',studentId:'p',scheduleId:'s',date:'2026-09-14',time:'10:00-10:40',grade:'5',status:'conducted',pedHours:1};
+  c.state.records=[record];c.refreshJournalMonth('2026-09','2026-09-30','t');
+  assert.equal(c.state.records[0].grade,'5');assert.equal(c.countableRecord(c.state.records[0]),false);
+  c.state.schedule=[{id:'s',employeeId:'t',studentId:'p',weekday:1,time:'10:00-10:40',effectiveFrom:'2026-09-01',pedHours:1}];
+  c.refreshJournalMonth('2026-09','2026-09-30','t');
+  assert.equal(c.state.records.find(r=>r.id==='old').grade,'5');assert.equal(c.state.records.find(r=>r.id==='old').scheduleSuperseded,false);
+});
 
 test('half-hour person-hours agree in monthly totals, pupil rows and print report',()=>{
   const c=fixture();

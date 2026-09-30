@@ -172,6 +172,11 @@ document.addEventListener("click", (event) => {
   if (name === "addScheduleDay") openScheduleModal(Number(id));
   if (name === "deleteSchedule") deleteScheduleRow(id);
   if (name === "archiveSchedule") openArchiveScheduleModal();
+  if (name === 'correctScheduleStart') openScheduleStartCorrection();
+  if (name === 'clearJournalFilters') {
+    ['#journalInstrument','#journalSubject','#journalGroup'].forEach(id => document.querySelector(id).value = '');
+    renderJournal();
+  }
   if (name === "toggleScheduleArchive") toggleScheduleArchive();
   if (name === "deleteScheduleArchive") deleteScheduleArchive(id);
   if (name === "printSchedule") printSchedule();
@@ -215,6 +220,7 @@ document.addEventListener("submit", async (event) => {
   if (type === "holiday") addHolidayFromModal(form);
   if (type === "schedule") addScheduleFromModal(form);
   if (type === "archiveSchedule") archiveCurrentSchedule(form);
+  if (type === 'correctScheduleStart') correctScheduleStart(form);
   if (type === "lessonMembers") saveLessonMembers(form);
   if (type === "lessonDuration") saveLessonDuration(form);
   if (type === "journalRoster") saveJournalRoster(form);
@@ -1028,6 +1034,7 @@ function switchTab(name) {
   tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === name));
   Object.entries(views).forEach(([viewName, view]) => view.classList.toggle("active", viewName === name));
   pageTitle.textContent = titles[name];
+  if (name === 'journal') renderJournal();
   window.PaidJournal?.sync();
   window.AccompanistJournal?.sync();
 }
@@ -1407,6 +1414,8 @@ function initializeScheduleCourse(row) {
   const group = state.groups.find(g => g.id === row.studentId);
   if (group) {
     row.educationForm = group.educationForm; row.participantKind = 'group'; row.participantIds = [...(group.studentIds || [])];
+    const namedSubject = lessonTypes.find(type => type !== 'Специальность' && group.name.toLocaleLowerCase('ru').startsWith(type.toLocaleLowerCase('ru')));
+    if (namedSubject) row.type = namedSubject;
     if (group.choirLevel) {
       row.type = 'Хор'; row.pedHours = group.defaultPedHours; row.kcHours = 0;
       row.durationHours = group.defaultPedHours; row.academicHours = group.defaultPedHours;
@@ -1514,8 +1523,10 @@ function updateScheduleField(field) {
   if (key === "studentId") {
     row.studentId = field.value;
     const participant = participantById(field.value);
-    row.className = participant?.className || row.className;
-    if (participant?.kind === "group" && participant.name === "Оркестр") row.type = "Оркестр";
+    for (const stale of ['participantIds','participantNames','participantKind','enrollmentId','instrument','program','needsCourseSelection','academicHours','lessonMinutes']) delete row[stale];
+    row.className = participant?.className || '';
+    row.educationForm = participant?.educationForm || 'ДПП';
+    initializeScheduleCourse(row);
   } else if (key === "pedHours" || key === "kcHours" || key === "weekday") {
     row[key] = Number(digitsOnly(field.value) || 0);
   } else if (key === "room") {
@@ -1731,12 +1742,28 @@ function assignGroupFromModal(form) {
     const allowed = new Set(lessonMemberCandidates(group).map(s => s.id));
     if (selected.some(id => !allowed.has(id))) { alert('Выберите учеников соответствующих классов.'); return; }
   }
+  const previousIds = [...(group.studentIds || [])];
   group.educationForm = normalizeEducationForm(form.elements.educationForm.value);
   if (form.elements.name) group.name = form.elements.name.value.trim() || group.name;
   group.studentIds = selected;
   if (isAdmin()) group.assignedEmployeeIds = checkedValues(form, "employeeIds");
+  syncGroupSchedule(group, previousIds);
   closeModal();
   persistAndRender();
+}
+
+function syncGroupSchedule(group, previousIds) {
+  const rows = (state.schedule || []).filter(row => !row.archiveId && row.studentId === group.id);
+  const changedEmployees = new Map();
+  rows.forEach(row => {
+    const wholeGroup = !Array.isArray(row.participantIds) ||
+      (row.participantIds.length === previousIds.length && previousIds.every(id => row.participantIds.includes(id)));
+    row.participantIds = wholeGroup ? [...group.studentIds] : row.participantIds.filter(id => group.studentIds.includes(id));
+    row.participantKind = 'group';
+    row.educationForm = group.educationForm;
+    changedEmployees.set(row.employeeId, row);
+  });
+  changedEmployees.forEach(row => refreshGeneratedJournalForScheduleChange(row));
 }
 
 function addEmployee(event) {
@@ -1900,6 +1927,7 @@ function addScheduleFromModal(form) {
     return;
   }
   state.schedule.push(row);
+  refreshGeneratedJournalForScheduleChange(row);
   closeModal();
   persistAndRender();
 }
@@ -1943,6 +1971,39 @@ function openArchiveScheduleModal() {
   `);
 }
 
+function openScheduleStartCorrection() {
+  if (!employeeSchedule().length) { alert('Сначала заполните текущее расписание.'); return; }
+  openModal('Исправить расписание с прошлой даты', `<form class="modal-form" data-modal-form="correctScheduleStart">
+    <p>Текущее расписание будет действовать с выбранной даты: составы групп, предметы, дни и время занятий. Журналы за затронутые месяцы пересчитаются.</p>
+    <label>Действует с<input type="date" name="effectiveFrom" min="2026-09-01" max="${escapeAttr(currentScheduleEffectiveFrom())}" value="${escapeAttr(currentScheduleEffectiveFrom())}" required /></label>
+    <p class="muted-note">Оценки совпадающих занятий сохранятся. Заполненные записи, которым больше не соответствует занятие, останутся в истории исправлений без начисления часов.</p>
+    <button class="primary-button" type="submit">Применить и обновить журнал</button></form>`);
+}
+
+function correctScheduleStart(form) {
+  const start = form.elements.effectiveFrom.value;
+  const rows = employeeSchedule();
+  const oldStart = currentScheduleEffectiveFrom();
+  if (!/^202[67]-\d{2}-\d{2}$/.test(start) || start < '2026-09-01' || start > oldStart || !rows.length) return;
+  const dayBefore = addDaysISO(start, -1);
+  state.schedule.filter(r => r.employeeId === state.activeEmployeeId && r.archiveId && (!r.effectiveTo || r.effectiveTo >= start)).forEach(r => {
+    r.effectiveTo = dayBefore;
+  });
+  state.scheduleArchives.filter(a => a.employeeId === state.activeEmployeeId && a.archivedThrough >= start).forEach(a => {
+    a.archivedThrough = dayBefore;
+    a.correctedFrom = start;
+  });
+  rows.forEach(row => { row.effectiveFrom = start; });
+  const months = new Set(state.records.filter(r => r.employeeId === state.activeEmployeeId && r.date >= start).map(r => r.date.slice(0,7)));
+  for (let month = start.slice(0,7); month <= oldStart.slice(0,7); ) {
+    months.add(month);
+    const date = new Date(`${month}-01T12:00:00`); date.setMonth(date.getMonth()+1);
+    month = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`;
+  }
+  months.forEach(month => refreshJournalMonth(month,todayISO(),state.activeEmployeeId));
+  closeModal(); persistAndRender();
+}
+
 function archiveCurrentSchedule(form) {
   const archivedThrough = form.elements.archivedThrough.value;
   const currentRows = employeeSchedule();
@@ -1970,6 +2031,7 @@ function archiveCurrentSchedule(form) {
 
   const nextVersionRows = currentRows.map((row) => ({
     ...row,
+    previousScheduleId: row.id,
     id: createId(),
     archiveId: "",
     effectiveFrom: nextVersionStart,
@@ -2087,7 +2149,7 @@ function refreshJournalMonth(month, asOf, employeeId) {
         !reusedRecordIds.has(record.id)
         && record.date === date
         && (
-          (record.scheduleId === row.id && record.studentId === row.studentId && (!record.enrollmentId || record.enrollmentId === row.enrollmentId))
+          ([row.id, row.previousScheduleId].filter(Boolean).includes(record.scheduleId) && record.studentId === row.studentId && (!record.enrollmentId || record.enrollmentId === row.enrollmentId))
           || (
             record.studentId === row.studentId
             && record.time === row.time
@@ -2103,6 +2165,7 @@ function refreshJournalMonth(month, asOf, employeeId) {
       clearLegacyAttendance(previousLesson);
       state.records.push({
         ...previousLesson,
+        scheduleSuperseded: false,
         ...snapshotLessonMembers((previous?.rosterOverride === true || row.archiveId || !Array.isArray(row.participantIds)) && Array.isArray(previous?.participantIds) ? previous : row),
         id: previous?.id || createId(),
         employeeId: row.employeeId,
@@ -2133,13 +2196,19 @@ function refreshJournalMonth(month, asOf, employeeId) {
     });
   });
 
+  // Retain authored work when correcting a timetable removes its occurrence.
+  previousRecords.filter(record => !reusedRecordIds.has(record.id) && (
+    record.grade || Object.values(record.studentGrades || {}).some(Boolean) || record.topic || record.rosterOverride || record.hoursOverride
+  )).forEach(record => state.records.push({...record, scheduleSuperseded: true}));
+
   return { created, removed };
 }
 
 function refreshGeneratedJournalForScheduleChange(row) {
-  const months = [...new Set(state.records
-    .filter((record) => record.scheduleId === row.id)
-    .map((record) => record.date.slice(0, 7)))];
+  const selectedMonth = globalThis.document?.querySelector('#journalMonth')?.value;
+  const months = [...new Set([...state.records
+    .filter((record) => record.employeeId === row.employeeId)
+    .map((record) => record.date.slice(0, 7)), selectedMonth].filter(Boolean))];
   months.forEach((month) => refreshJournalMonth(month, todayISO(), row.employeeId));
 }
 
@@ -2192,8 +2261,10 @@ function renderSchedule() {
     <div class="schedule-toolbar">
       <button class="ghost-button" type="button" data-action="printSchedule">Печать по бланку</button>
       <button class="primary-button" type="button" data-action="archiveSchedule">Архивировать расписание</button>
+      <button class="ghost-button" type="button" data-action="correctScheduleStart">Исправить с прошлой даты</button>
       ${isAdmin() ? `<button class="ghost-button" type="button" data-action="toggleScheduleArchive">${showScheduleArchive ? "Скрыть архив" : "Архив расписаний"}</button>` : ""}
     </div>
+    <p class="muted-note">Текущее расписание действует с ${formatDate(currentScheduleEffectiveFrom())}. Журнал за более ранние даты использует архивную версию.</p>
     <div class="schedule-tabs">
       ${workWeekdays.map((weekday) => `
         <button class="mini-button ${weekday === activeScheduleWeekday ? "active-day" : ""}" type="button" data-action="scheduleDay:${weekday}">
@@ -2557,6 +2628,7 @@ function journalMonthlyRows(records) {
 
 function printJournalSection(section) {
   if (!['matrix','topics','monthly'].includes(section) || !preparePrint()) return;
+  renderJournal();
   document.body.classList.remove('printing-schedule','printing-substitutions');
   document.body.dataset.journalPrint = section;
   window.print();
@@ -2598,7 +2670,9 @@ function renderJournal() {
   const records = subjectRecords.filter(r => !group || r.studentId === group);
   const dates = uniqueRecordDates(records);
 
-  document.querySelector("#journalTitle").textContent = `Журнал за ${monthLabel(month)}`;
+  document.querySelector("#journalTitle").textContent = [`Журнал за ${monthLabel(month)}`, subject, group ? studentName(group) : '', filter.value].filter(Boolean).join(' · ');
+  const history = state.records.filter(r => r.employeeId === state.activeEmployeeId && r.date.startsWith(month) && r.scheduleSuperseded);
+  document.querySelector('#journalCorrectionHistory').innerHTML = history.length ? `<details class="no-print"><summary>История исправлений: ${history.length} записей</summary><p>Эти занятия заменены расписанием и не входят в часы. Сохранённые оценки и темы:</p>${history.map(r => `<p>${escapeHtml(formatDate(r.date))} ${escapeHtml(r.time)} · ${escapeHtml(r.studentName)} · ${escapeHtml(r.type)}: ${escapeHtml(r.grade || '')} ${Object.entries(r.studentGrades || {}).filter(([,grade])=>grade).map(([id,grade])=>`${escapeHtml(r.participantNames?.[id] || studentName(id))}: ${escapeHtml(grade)}`).join('; ')} ${escapeHtml(r.topic || '')}</p>`).join('')}</details>` : '';
   document.querySelector('#journalDetails').innerHTML = renderJournalDetails(records, month);
   if (!dates.length) {
     document.querySelector("#journalMatrix").innerHTML = `<div class="empty-state">Нет дат занятий за выбранный месяц.</div>`;
@@ -3208,7 +3282,7 @@ function employeeScheduleHistory() {
 }
 
 function employeeRecords() {
-  const records = state.records.filter((record) => record.employeeId === state.activeEmployeeId);
+  const records = state.records.filter((record) => record.employeeId === state.activeEmployeeId && !record.scheduleSuperseded);
   return globalThis.AbsenceJournal ? globalThis.AbsenceJournal.projected(state.activeEmployeeId,records) : records;
 }
 
@@ -3305,7 +3379,7 @@ function activeScheduleForEmployeeDate(employeeId, date) {
 
 function currentScheduleEffectiveFrom() {
   const starts = employeeSchedule().map((row) => row.effectiveFrom).filter(Boolean).sort();
-  return starts[0] || "2025-09-01";
+  return starts[0] || "2026-09-01";
 }
 
 function plannedFromSchedule(daysAhead) {
@@ -3383,7 +3457,7 @@ function countableStatus(status) {
 }
 
 function countableRecord(record) {
-  return countableStatus(record.status) && !isHoliday(record.date);
+  return !record.scheduleSuperseded && countableStatus(record.status) && !isHoliday(record.date);
 }
 
 function sum(items, key) {

@@ -11,7 +11,7 @@ function fixture(admin=false) {
     nextGroupExternalId:()=> 'G1',createId:()=> 'g',normalizeEducationForm:x=>x,
     closeModal(){},persistAndRender(){c.saved=true;},alert:message=>{c.error=message;},
     checkedValues:()=>['other']});
-  for(const name of ['canCreateTeachingGroup','canEditTeachingGroup','validateTeachingGroupSelection','visibleStudents','addGroupFromModal','assignGroupFromModal']) {
+  for(const name of ['canCreateTeachingGroup','canEditTeachingGroup','validateTeachingGroupSelection','visibleStudents','addGroupFromModal','assignGroupFromModal','syncGroupSchedule']) {
     const start=source.indexOf(`function ${name}(`),end=source.indexOf('\nfunction ',start+1);
     vm.runInContext(source.slice(start,end),c);
   }

@@ -118,7 +118,7 @@
           <div class="editor-panel journal-controls">
             <div class="form-header">
               <h3>Формирование журнала</h3>
-              <p>При обновлении журнал полностью синхронизируется с расписанием. Оценки сохраняются у занятий, которые остаются в расписании.</p>
+              <p>Журнал использует расписание, действующее на дату занятия. Чтобы изменить начало действия текущего расписания, нажмите в расписании «Исправить с прошлой даты».</p>
             </div>
             <div class="form-grid month-grid">
               <label>
@@ -126,7 +126,7 @@
                 <input type="month" id="journalMonth" value="2026-09" />
               </label>
               <label>
-                Сформировать на дату
+                Проведённые по дату
                 <input type="date" id="generateAsOf" value="2026-09-25" />
               </label>
               <button class="primary-button form-button" type="button" id="generateJournal">Сформировать / обновить</button>
@@ -141,11 +141,13 @@
               <label>Инструмент<select id="journalInstrument"><option value="">Все инструменты</option></select></label>
               <label>Предмет<select id="journalSubject"><option value="">Все предметы</option></select></label>
               <label>Группа<select id="journalGroup"><option value="">Все группы и ученики</option></select></label>
+              <button class="ghost-button no-print" type="button" data-action="clearJournalFilters">Все занятия</button>
               <button class="ghost-button no-print" type="button" id="printJournal">Печать журнала</button>
             </div>
             <div id="absencePanel"></div>
             <div class="journal-scroll" id="journalMatrix"></div>
             <div id="journalDetails"></div>
+            <div id="journalCorrectionHistory" class="no-print"></div>
           </div>
         </section>
 
@@ -349,7 +351,7 @@
   <script src="sync-model.js?v=20260930-1"></script>
   <script src="absence-journal.js?v=20260921-3"></script>
   <script src="auth-network.js?v=20260930-4"></script>
-  <script src="app.js?v=20260930-4"></script>
+  <script src="app.js?v=20260930-5"></script>
   <script src="paid-journal.js?v=20260924-1"></script>
   <script src="accompanist-model.js?v=20260930-3"></script>
   <script src="accompanist-journal.js?v=20260930-3"></script>

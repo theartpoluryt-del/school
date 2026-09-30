@@ -61,9 +61,9 @@ test('three separate print buttons isolate the matrix, topics and monthly hours'
 test('each print mode runs synchronously after explicit draft check and clears other modes',()=>{
   const source=fs.readFileSync(require.resolve('../app.js'),'utf8');
   const start=source.indexOf('function printJournalSection('),end=source.indexOf('\nfunction ',start);
-  let saved=true,prints=0,cleared=[];
+  let saved=true,prints=0,renders=0,cleared=[];
   const body={dataset:{},classList:{remove:(...names)=>{cleared=names;}}};
-  const c=vm.createContext({document:{body},window:{print:()=>prints++},preparePrint:()=>saved});
+  const c=vm.createContext({document:{body},window:{print:()=>{assert.equal(renders,prints+1);prints++;}},renderJournal:()=>renders++,preparePrint:()=>saved});
   vm.runInContext(source.slice(start,end),c);
   for(const mode of ['matrix','topics','monthly']) {
     c.printJournalSection(mode);assert.equal(body.dataset.journalPrint,mode);
