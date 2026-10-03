@@ -141,7 +141,7 @@ test('unconfirmed timetable save does not silently show an outdated KC journal',
 
 test('KC timetable generation is private; corrections cannot change owner or source',()=>{
   const sql=fs.readFileSync(require.resolve('../supabase/accompanist_schedule.sql'),'utf8');
-  assert.match(sql,/p.is_admin and lower\(p.username\)=lower\(e->>'username'\)/);
+  assert.match(sql,/p.is_admin and lower\(p.username\)='admin' and lower\(p.username\)=lower\(e->>'username'\)/);
   assert.match(sql,/r->>'type'='Концертмейстер'/);
   assert.match(sql,/effectiveFrom/);assert.match(sql,/effectiveTo/);assert.match(sql,/school_absences/);
   assert.match(sql,/md5\('kc\|'\|\|target_employee\|\|'\|'\|\|source_key\)::uuid/);

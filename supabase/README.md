@@ -161,3 +161,10 @@ The `admin_sync_employee_username` database function synchronizes a changed logi
 ## Client configuration
 
 Copy `supabase-config.example.js` to `supabase-config.js` and fill in the project URL and publishable key. A publishable key is safe in a browser client; never add a service-role key or database password to the site.
+# Пароли в кабинете (03.10.2026)
+
+Примените `password_prompt.sql` перед публикацией `account-passwords.js`. В кабинете сотрудник меняет собственный пароль через Supabase Auth `updateUser`. В списке сотрудников администратор использует «Сбросить пароль» — существующую серверную функцию `manage-school-user`, проверяющую права администратора. Старые пароли не показываются; новый пароль после административного сброса доступен для копирования только в текущем окне.
+
+Однократное необязательное предложение сменить пароль хранится в закрытой таблице `school_account.password_invitations`. RPC без параметров атомарно отмечает только текущего пользователя, поэтому повторный вход, другой браузер и очистка кэша не повторяют предложение. Сбой этого необязательного запроса не блокирует вход. Пароли не попадают в школьный JSON, резервные экспорты или localStorage приложения; хранение пароля браузерным менеджером пользователь решает сам.
+
+`accompanist_admin_membership.sql` отключает только личное членство КЦ у Полуротовой и Радюк. Исторические записи не удаляются, административный доступ к журналам действующих концертмейстеров сохраняется. Общий аккаунт `admin` остаётся концертмейстером.

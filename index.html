@@ -95,6 +95,16 @@
 
         <section class="tab-view active" id="dashboardView">
           <div class="content-panel">
+            <div class="panel-toolbar"><div><h3>Мой аккаунт</h3><p>Логин: <strong id="accountUsername"></strong></p></div>
+              <button type="button" class="ghost-button" data-password-action="change">Сменить пароль</button>
+            </div>
+            <div id="passwordSuggestion" class="is-hidden" role="status" style="padding:0 20px 20px">
+              <p>Рекомендуем сменить выданный пароль на свой. Это предложение показывается только один раз.</p>
+              <button type="button" class="primary-button" id="passwordSuggestionChange">Сменить сейчас</button>
+              <button type="button" class="ghost-button" id="passwordSuggestionSkip">Пропустить</button>
+            </div>
+          </div>
+          <div class="content-panel">
             <div class="panel-toolbar">
               <div>
                 <h3>Ближайшие занятия</h3>
@@ -352,7 +362,8 @@
   <script src="sync-model.js?v=20260930-6"></script>
   <script src="absence-journal.js?v=20260930-6"></script>
   <script src="auth-network.js?v=20260930-6"></script>
-  <script src="app.js?v=20260930-6"></script>
+  <script src="account-passwords.js?v=20261003-1"></script>
+  <script src="app.js?v=20261003-1"></script>
   <script src="paid-journal.js?v=20260924-1"></script>
   <script src="accompanist-model.js?v=20260930-3"></script>
   <script src="accompanist-journal.js?v=20260930-3"></script>

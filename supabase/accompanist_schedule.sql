@@ -4,11 +4,11 @@ alter table public.accompanist_lessons add column if not exists source_key text;
 alter table public.accompanist_lessons add column if not exists source_hash text;
 create unique index if not exists accompanist_source_key on public.accompanist_lessons(employee_id,source_key) where source_key is not null;
 
--- Admins retain their teaching roles and also have their own KC journal.
+-- Only the generic administrator also has a personal KC journal.
 insert into public.school_accompanists(employee_id,enabled)
 select distinct e->>'id',true from public.school_state s,
   jsonb_array_elements(s.payload->'employees') e,public.school_profiles p
-where p.is_admin and lower(p.username)=lower(e->>'username')
+where p.is_admin and lower(p.username)='admin' and lower(p.username)=lower(e->>'username')
 on conflict(employee_id) do update set enabled=true;
 
 create or replace function public.accompanist_schedule_rows(school jsonb,target_employee text,month_start date)

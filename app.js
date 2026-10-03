@@ -366,7 +366,7 @@ document.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("beforeunload", (event) => {
-  if (!cloudDirty && !cloudSaveTimer && !cloudSaveInFlight && !cloudSaveQueued && !globalThis.AbsenceJournal?.isBusy() && !globalThis.AccompanistJournal?.isBusy()) return;
+  if (!cloudDirty && !cloudSaveTimer && !cloudSaveInFlight && !cloudSaveQueued && !globalThis.AbsenceJournal?.isBusy() && !globalThis.AccompanistJournal?.isBusy() && !globalThis.SchoolPasswords?.isBusy()) return;
   event.preventDefault();
   event.returnValue = "";
 });
@@ -562,9 +562,9 @@ function toggleEmployeePassword(form, button) {
 
 async function invokeCredentialUpdate(currentUsername, newUsername, newPassword) {
   if (!supabaseClient) throw new Error("Подключение к серверу не настроено.");
-  const { data, error } = await supabaseClient.functions.invoke("manage-school-user", {
+  const { data, error } = await cloudRequest(supabaseClient.functions.invoke("manage-school-user", {
     body: { currentUsername, newUsername, newPassword }
-  });
+  }));
   if (error) {
     let message = error.message || "Не удалось обновить учётные данные.";
     try {
@@ -897,6 +897,7 @@ function currentTimeLabel() {
 }
 
 function render() {
+  globalThis.SchoolPasswords?.render();
   renderAuthState();
   window.AccompanistJournal?.sync();
   if (!currentUser()) { window.PaidJournal?.sync(); return; }
@@ -1041,6 +1042,7 @@ async function login(event) {
   setLoginStatus("", "");
   submitButton.disabled = false;
   render();
+  void globalThis.SchoolPasswords?.offer();
   } catch (error) {
     currentProfile = null;
     setLoginStatus(SchoolAuth.message(error), 'error');
@@ -1126,6 +1128,7 @@ async function initializeAuth() {
   state.sessionEmployeeId = employee.id;
   state.activeEmployeeId = employee.id;
   render();
+  void globalThis.SchoolPasswords?.offer();
   } catch (error) {
     currentProfile = null;
     setLoginStatus(SchoolAuth.message(error), 'error');
@@ -1160,6 +1163,7 @@ function openModal(title, body) {
 }
 
 function closeModal() {
+  if (globalThis.SchoolPasswords?.isBusy()) return;
   if (globalThis.AccompanistJournal?.isBusy()) return;
   document.querySelector("#modalOverlay").classList.add("is-hidden");
   document.querySelector("#modalContent").innerHTML = "";
@@ -2332,6 +2336,7 @@ function renderEmployeeSelect() {
 }
 
 function renderDashboard() {
+  globalThis.SchoolPasswords?.render();
   const upcoming = plannedFromSchedule(14).slice(0, 8);
   document.querySelector("#upcomingList").innerHTML = upcoming.length
     ? upcoming.map(renderLessonCard).join("")
@@ -3214,6 +3219,7 @@ function renderPeople() {
       </div>
       <footer>
         <span class="tag">${employee.id === state.activeEmployeeId ? "\u0430\u043a\u0442\u0438\u0432\u043d\u044b\u0439" : "\u0441\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a"}</span>
+        ${isAdmin() ? `<button class="mini-button" type="button" data-password-action="reset" data-password-employee="${escapeAttr(employee.id)}">Сбросить пароль</button>` : ''}
         ${isAdmin() ? `<span class="card-actions"><button class="mini-button" type="button" data-action="openEmployeeModal:${employee.id}">Изменить</button><button class="danger-button" type="button" data-action="deleteEmployee:${employee.id}">\u0423\u0434\u0430\u043b\u0438\u0442\u044c</button></span>` : ""}
       </footer>
     </article>
