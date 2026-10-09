@@ -175,6 +175,7 @@ document.addEventListener("click", (event) => {
   if (name === "scheduleDay") setActiveScheduleDay(Number(id));
   if (name === "addParticipant") addScheduleFromParticipant(id, activeScheduleWeekday);
   if (name === "addScheduleDay") openScheduleModal(Number(id));
+  if (name === 'addKcSchedule') openScheduleModal(activeScheduleWeekday, 'Концертмейстер');
   if (name === "deleteSchedule") deleteScheduleRow(id);
   if (name === "archiveSchedule") openArchiveScheduleModal();
   if (name === 'correctScheduleStart') openScheduleStartCorrection();
@@ -282,6 +283,8 @@ document.addEventListener("change", (event) => {
   if (event.target.matches('[data-modal-course]')) { applyModalCourse(event.target.closest('form')); return; }
   if (event.target.matches('[data-modal-lesson-type]')) {
     const type = event.target.value;
+    const picker = event.target.closest('form').elements.studentId;
+    picker.innerHTML = participantOptions(picker.value, type);
     refreshModalCourses(event.target.closest('form'));
     event.target.value = type;
     if (type === 'Дирижирование') {
@@ -289,6 +292,11 @@ document.addEventListener("change", (event) => {
       form.elements.pedHours.value = '0.5'; form.elements.kcHours.value = '0';
       delete form.dataset.lessonMinutes;
       form.elements.endTime.value = SchoolModel.endTime(form.elements.startTime.value, 0.5);
+    }
+    if (type === 'Концертмейстер') {
+      const form = event.target.closest('form');
+      form.elements.kcHours.value = String(Number(form.elements.pedHours.value.replace(',', '.')) + Number(form.elements.kcHours.value.replace(',', '.')) || 1);
+      form.elements.pedHours.value = '0';
     }
     return;
   }
@@ -507,7 +515,7 @@ function persistAndRender() {
 
 function cloudPayload() {
   const payload = structuredClone(state);
-  for (const key of ['absenceRows','substituteTeachers','absencesEnabled']) delete payload[key];
+  for (const key of ['absenceRows','substituteTeachers','absencesEnabled','kcScheduleStudents','kcScheduleEmployeeIds']) delete payload[key];
   payload.sessionEmployeeId = "";
   payload.employees.forEach((employee) => delete employee.password);
   return payload;
@@ -1309,8 +1317,9 @@ function openHolidayModal(date) {
   `);
 }
 
-function openScheduleModal(weekday) {
-  const participant = visibleParticipants()[0];
+function openScheduleModal(weekday, type = 'Специальность') {
+  if (!visibleParticipants().length && canScheduleKc()) type = 'Концертмейстер';
+  const participant = scheduleParticipants(type)[0];
   if (!participant) {
     alert("Сначала администратор должен назначить ученика или группу преподавателю.");
     return;
@@ -1324,8 +1333,8 @@ function openScheduleModal(weekday) {
         <label>Кц<input type="text" inputmode="decimal" name="kcHours" value="0" data-modal-hours required pattern="[0-9]+([.,][0-9]+)?" /></label>
         <label>Окончание<input type="time" name="endTime" step="300" required /></label>
       </div>
-      <label>Ученик / группа<select name="studentId" data-modal-participant>${participantOptions(participant.id)}</select></label>
-      <label>Предмет<select name="type" data-modal-lesson-type>${lessonTypeOptions("Специальность")}</select></label>
+      <label>Предмет<select name="type" data-modal-lesson-type>${lessonTypeOptions(type)}</select></label>
+      <label>Ученик / группа<select name="studentId" required data-modal-participant>${participantOptions(participant.id, type)}</select></label>
       <label><span data-course-label>Предмет · инструмент · класс</span><select name="enrollmentId" data-modal-course></select></label>
       <label>Класс<input type="text" name="className" value="${escapeAttr(participant.className || "")}" data-modal-class readonly /></label>
       <p class="muted-note" data-modal-duration-note>Укажите часы в Пед. или Кц: 1 час = 40 минут. Окончание рассчитается автоматически.</p>
@@ -1364,12 +1373,17 @@ function assignStudentsToSelf(form) {
   persistAndRender();
 }
 
-function courseOptionsFor(participantId, employeeId = state.activeEmployeeId) {
+function courseOptionsFor(participantId, employeeId = state.activeEmployeeId, type = '') {
+  if (type === 'Концертмейстер' && canScheduleKc(employeeId)) {
+    return (state.kcScheduleStudents || []).find(s => s.id === participantId)?.enrollments?.map((e,index) => ({
+      ...e, id: e.id || `kc-${participantId}-${index}`, subject: 'Концертмейстер'
+    })) || [];
+  }
   return SchoolModel.courses(participantById(participantId), employeeId);
 }
 
 function courseSelectOptions(row) {
-  const { simple, items } = SchoolModel.courseChoices(courseOptionsFor(row.studentId, row.employeeId), row.type);
+  const { simple, items } = SchoolModel.courseChoices(courseOptionsFor(row.studentId, row.employeeId, row.type), row.type);
   return `<option value="" disabled ${items.some(e => e.id === row.enrollmentId) ? '' : 'selected'}>${items.length ? (simple ? 'Выберите инструмент' : 'Выберите предмет и инструмент') : 'Нет отдельных привязок'}</option>` + items.map(e =>
     `<option value="${escapeAttr(e.id)}" ${row.enrollmentId === e.id ? 'selected' : ''}>${escapeHtml(e.label)}</option>`).join('');
 }
@@ -1377,7 +1391,7 @@ function courseSelectOptions(row) {
 function refreshModalCourses(form) {
   if (!form) return;
   const row = { studentId: form.elements.studentId.value, employeeId: state.activeEmployeeId, type: form.elements.type.value };
-  const {simple, items: courses} = SchoolModel.courseChoices(courseOptionsFor(row.studentId), row.type);
+  const {simple, items: courses} = SchoolModel.courseChoices(courseOptionsFor(row.studentId, row.employeeId, row.type), row.type);
   form.querySelector('[data-course-label]').textContent = simple ? 'Инструмент' : 'Предмет · инструмент · класс';
   row.enrollmentId = courses.some(e => e.id === form.elements.enrollmentId.value) ? form.elements.enrollmentId.value : courses.length === 1 ? courses[0].id : '';
   form.elements.enrollmentId.innerHTML = courseSelectOptions(row);
@@ -1386,13 +1400,14 @@ function refreshModalCourses(form) {
   const participant = participantById(row.studentId);
   if (form.dataset.durationParticipant !== row.studentId) {
     form.dataset.durationParticipant = row.studentId;
-    if (participant?.choirLevel) {
+    if (participant?.choirLevel && row.type !== 'Концертмейстер') {
       form.dataset.lessonMinutes = participant.defaultLessonMinutes;
       form.elements.pedHours.value = participant.defaultPedHours;
       form.elements.kcHours.value = '0'; form.elements.type.value = 'Хор';
     } else {
       delete form.dataset.lessonMinutes;
-      form.elements.pedHours.value = '1'; form.elements.kcHours.value = '0';
+      form.elements.pedHours.value = row.type === 'Концертмейстер' ? '0' : '1';
+      form.elements.kcHours.value = row.type === 'Концертмейстер' ? '1' : '0';
     }
     const hours = Number(form.elements.pedHours.value) + Number(form.elements.kcHours.value);
     form.elements.endTime.value = SchoolModel.endTime(form.elements.startTime.value, hours, form.dataset.lessonMinutes);
@@ -1530,8 +1545,9 @@ function clearLegacyAttendance(record) {
 }
 
 function applyModalCourse(form) {
-  const course = courseOptionsFor(form.elements.studentId.value).find(e => e.id === form.elements.enrollmentId.value);
-  form.elements.className.value = course?.className || (courseOptionsFor(form.elements.studentId.value).length ? '' : participantById(form.elements.studentId.value)?.className || '');
+  const courses = courseOptionsFor(form.elements.studentId.value, state.activeEmployeeId, form.elements.type.value);
+  const course = courses.find(e => e.id === form.elements.enrollmentId.value);
+  form.elements.className.value = course?.className || (courses.length ? '' : participantById(form.elements.studentId.value)?.className || '');
   if (course) form.elements.type.value = course.subject;
 }
 
@@ -1636,10 +1652,17 @@ function updateScheduleField(field) {
   if (!row) return;
 
   const key = field.dataset.scheduleField;
+  if (key === 'type' && row.type === 'Концертмейстер' && field.value !== 'Концертмейстер'
+    && !isAdmin() && !visibleParticipants().some(p => p.id === row.studentId)) {
+    field.value = row.type;
+    alert('Этот ученик доступен вам для занятий КЦ. Для педагогического занятия нужно назначение преподавателю.');
+    return;
+  }
   if (key === 'enrollmentId') {
-    const course = courseOptionsFor(row.studentId, row.employeeId).find(e => e.id === field.value);
+    const course = courseOptionsFor(row.studentId, row.employeeId, row.type).find(e => e.id === field.value);
     if (!course) return;
     SchoolModel.applyCourse(row, course);
+    if (course.termYears) row.termYears = course.termYears;
     updateHoursFromTime(row);
     refreshGeneratedJournalForScheduleChange(row);
     persistAndRender();
@@ -2027,9 +2050,12 @@ function addScheduleFromModal(form) {
     kcHours: Number(form.elements.kcHours.value.replace(',', '.')),
     room: digitsOnly(form.elements.room.value)
   };
-  const course = courseOptionsFor(participant.id).find(e => e.id === form.elements.enrollmentId.value);
-  if (courseOptionsFor(participant.id).length && !course) { form.elements.enrollmentId.reportValidity(); return; }
+  if (!scheduleParticipants(row.type).some(p => p.id === participant.id)) { alert('Ученик недоступен для выбранного вида занятия.'); return; }
+  const courses = courseOptionsFor(participant.id, row.employeeId, row.type);
+  const course = courses.find(e => e.id === form.elements.enrollmentId.value);
+  if (courses.length && !course) { form.elements.enrollmentId.reportValidity(); return; }
   SchoolModel.applyCourse(row, course);
+  if (course?.termYears) row.termYears = course.termYears;
   if (participant.kind === 'group') {
     row.participantKind = 'group';
     row.educationForm = participant.educationForm;
@@ -2039,6 +2065,7 @@ function addScheduleFromModal(form) {
   }
   // Course supplies instrument/class; the explicit subject selected by the teacher wins.
   row.type = form.elements.type.value;
+  if (row.type === 'Концертмейстер') { row.kcHours += row.pedHours; row.pedHours = 0; }
   row.durationHours = (minutesFromTime(end) - minutesFromTime(start)) / 40;
   if (participant.choirLevel) {
     row.academicHours = row.pedHours + row.kcHours;
@@ -2385,12 +2412,14 @@ function renderSchedule() {
 
   board.innerHTML = `
     <div class="schedule-toolbar">
+      ${canScheduleKc() ? '<button class="primary-button" type="button" data-action="addKcSchedule">Добавить занятие КЦ · все ученики</button>' : ''}
       <button class="ghost-button" type="button" data-action="printSchedule">Печать по бланку</button>
       <button class="primary-button" type="button" data-action="archiveSchedule">Архивировать расписание</button>
       <button class="ghost-button" type="button" data-action="correctScheduleStart">Исправить с прошлой даты</button>
       ${isAdmin() ? `<button class="ghost-button" type="button" data-action="toggleScheduleArchive">${showScheduleArchive ? "Скрыть архив" : "Архив расписаний"}</button>` : ""}
     </div>
     <p class="muted-note">Текущее расписание действует с ${formatDate(currentScheduleEffectiveFrom())}. Журнал за более ранние даты использует архивную версию.</p>
+    ${canScheduleKc() ? '<p class="muted-note">Ниже — ваши личные назначения. Для концертмейстерских часов выбирайте любого ученика через «Добавить занятие КЦ · все ученики».</p>' : ''}
     <div class="schedule-tabs">
       ${workWeekdays.map((weekday) => `
         <button class="mini-button ${weekday === activeScheduleWeekday ? "active-day" : ""}" type="button" data-action="scheduleDay:${weekday}">
@@ -2504,7 +2533,7 @@ function renderDraggableGroup(group) {
 function renderScheduleRow(row) {
   const participant = participantById(row.studentId);
   const time = scheduleTimeParts(row);
-  const simple = SchoolModel.courseChoices(courseOptionsFor(row.studentId, row.employeeId), row.type).simple;
+  const simple = SchoolModel.courseChoices(courseOptionsFor(row.studentId, row.employeeId, row.type), row.type).simple;
   const courseSelect = `<select class="schedule-course-select" aria-label="${simple ? 'Инструмент' : 'Предмет, инструмент и класс'}" data-schedule-id="${escapeAttr(row.id)}" data-schedule-field="enrollmentId">${courseSelectOptions(row)}</select>`;
   const groupMembers = participant?.kind === 'group' ? lessonMemberIds(row) : [];
   const membersControl = participant?.kind === 'group' ? `<button type="button" class="mini-button lesson-members-button" data-action="lessonMembers:${escapeAttr(row.id)}">Состав занятия: ${groupMembers.length} уч.</button><details class="lesson-roster"><summary>Фамилии участников</summary>${groupMembers.map(id => escapeHtml(state.students.find(s => s.id === id)?.name || 'Ученик не загружен')).join('<br>') || 'Состав не выбран'}</details><small>По составу: ${formatNumber(SchoolModel.lessonHours(row) * groupMembers.length)} чел.-ч. за занятие</small>` : '';
@@ -3485,7 +3514,7 @@ function visibleParticipants() {
 }
 
 function participantById(id) {
-  const student = state.students.find((item) => item.id === id);
+  const student = state.students.find((item) => item.id === id) || (state.kcScheduleStudents || []).find(item => item.id === id);
   if (student) return { ...student, kind: "student" };
   const group = state.groups.find((item) => item.id === id);
   if (group) return { ...group, kind: "group" };
@@ -3717,8 +3746,20 @@ function gradeOptions(selectedGrade) {
     .join("");
 }
 
-function participantOptions(selectedId) {
-  return visibleParticipants().map((participant) => {
+function canScheduleKc(employeeId = state.activeEmployeeId) {
+  return !!currentUser() && (isAdmin() || employeeId === state.sessionEmployeeId)
+    && (state.kcScheduleEmployeeIds || []).includes(employeeId);
+}
+
+function scheduleParticipants(type) {
+  if (type === 'Концертмейстер' && canScheduleKc()) {
+    return uniqueById([...(state.kcScheduleStudents || []).map(s => ({...s,kind:'student'})), ...visibleParticipants()]);
+  }
+  return visibleParticipants();
+}
+
+function participantOptions(selectedId, type = '') {
+  return scheduleParticipants(type).map((participant) => {
     const selected = participant.id === selectedId ? "selected" : "";
     const label = participant.kind === "group" ? `Группа: ${participant.name}` : participant.name;
     return `<option value="${participant.id}" ${selected}>${escapeHtml(label)}</option>`;

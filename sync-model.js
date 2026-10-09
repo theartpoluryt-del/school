@@ -33,7 +33,7 @@
     throw new Error(`Одно и то же поле изменено в двух сеансах: ${path}`);
   }
   function payload(base,local,remote,resolve) {
-    const serverKeys=['teacherGroupsEnabled','absencesEnabled','absenceRows','substituteTeachers'];
+    const serverKeys=['teacherGroupsEnabled','absencesEnabled','absenceRows','substituteTeachers','kcScheduleStudents','kcScheduleEmployeeIds'];
     const clean=x=>{const copy=structuredClone(x); for(const key of ['sessionEmployeeId','activeEmployeeId',...serverKeys]) delete copy[key]; return copy;};
     return {...merge(clean(base),clean(local),clean(remote),'',resolve), sessionEmployeeId:local.sessionEmployeeId,
       activeEmployeeId:local.activeEmployeeId,...Object.fromEntries(serverKeys.map(key=>[key,remote[key]]))};
