@@ -7,6 +7,7 @@ create table if not exists school_sync.function_backups (
  migration_id text not null, signature text not null, definition text not null,
  created_at timestamptz not null default clock_timestamp(), primary key(migration_id,signature)
 );
+alter table school_sync.function_backups enable row level security;
 revoke all on school_sync.function_backups from public,anon,authenticated;
 insert into school_sync.function_backups(migration_id,signature,definition)
 select 'kc-roster-20261009',signature,pg_get_functiondef(signature::regprocedure)
