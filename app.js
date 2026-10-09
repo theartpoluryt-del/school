@@ -986,6 +986,7 @@ async function login(event) {
   const submitButton = event.submitter || event.target.querySelector('button[type="submit"]');
   submitButton.disabled = true;
   authBusy = true;
+  let loginStage = 'auth';
   try {
   setLoginStatus("Проверяем данные…", "info");
 
@@ -995,32 +996,34 @@ async function login(event) {
     return;
   }
 
-  const { data: authData, error } = await cloudRequest(supabaseClient.auth.signInWithPassword({
+  const { data: authData, error } = await cloudRequest(SchoolAuth.signIn(supabaseClient, {
     email: schoolAuthEmail(username),
     password
-  }));
+  }, () => setLoginStatus('Связь с сервером прервалась. Повторяем вход один раз…', 'info')), 35000);
   if (error || !authData?.user) {
     console.warn("Supabase sign-in failed", error?.message || "user not returned");
-    setLoginStatus(SchoolAuth.message(error), "error");
+    setLoginStatus(SchoolAuth.stageMessage(error, loginStage), "error");
     submitButton.disabled = false;
     return;
   }
 
   setLoginStatus('Загружаем профиль…', 'info');
+  loginStage = 'profile';
   currentProfile = await loadCurrentProfile(authData.user.id);
   if (!currentProfile || normalizeEmployeeUsername(currentProfile.username) !== username) {
     await cloudRequest(supabaseClient.auth.signOut({ scope: "local" }), 5000).catch(() => {});
     currentProfile = null;
     setLoginStatus(profileLoadError && profileLoadError.code !== "PGRST116"
-      ? "Не удалось загрузить профиль: сервер временно недоступен. Повторите вход чуть позже."
+      ? "Не удалось загрузить профиль: сервер временно недоступен. Повторите вход чуть позже. Код: P-20261009."
       : "Профиль сотрудника не настроен. Обратитесь к администратору.", "error");
     submitButton.disabled = false;
     return;
   }
   setLoginStatus('Загружаем журнал…', 'info');
+  loginStage = 'data';
   if (!await loadCloudState()) {
     currentProfile = null;
-    setLoginStatus("Не удалось загрузить школьную базу. Сервер временно недоступен; повторите вход чуть позже.", "error");
+    setLoginStatus("Не удалось загрузить школьную базу. Сервер временно недоступен; повторите вход чуть позже. Код: D-20261009.", "error");
     submitButton.disabled = false;
     return;
   }
@@ -1045,7 +1048,7 @@ async function login(event) {
   void globalThis.SchoolPasswords?.offer();
   } catch (error) {
     currentProfile = null;
-    setLoginStatus(SchoolAuth.message(error), 'error');
+    setLoginStatus(SchoolAuth.stageMessage(error, loginStage), 'error');
   } finally {
     authBusy = false;
     submitButton.disabled = false;
@@ -1107,15 +1110,27 @@ async function initializeAuth() {
   const button = document.querySelector('#loginForm button[type="submit"]');
   authBusy = true;
   button.disabled = true;
+  let loginStage = 'session';
   try {
-  const { data, error } = await cloudRequest(supabaseClient.auth.getSession());
+  // SDK refresh can retry within its 30-second recovery window; don't abandon it at 20s
+  // and let a second sign-in race the still-running recovery.
+  setLoginStatus('Восстанавливаем вход…', 'info');
+  const { data, error } = await cloudRequest(supabaseClient.auth.getSession(), 45000);
   if (error) throw error;
   const user = data.session?.user;
-  if (!user) return;
+  if (!user) { setLoginStatus('', ''); return; }
+  loginStage = 'profile';
   currentProfile = await loadCurrentProfile(user.id);
-  if (!currentProfile || !await loadCloudState()) {
+  if (!currentProfile) {
+    setLoginStatus(profileLoadError && profileLoadError.code !== 'PGRST116'
+      ? SchoolAuth.stageMessage(profileLoadError, loginStage)
+      : 'Профиль сотрудника не настроен. Обратитесь к администратору.', 'error');
+    return;
+  }
+  loginStage = 'data';
+  if (!await loadCloudState()) {
     currentProfile = null;
-    setLoginStatus('Не удалось восстановить вход. Повторите вход; при повторной ошибке нажмите «Восстановить вход».', 'error');
+    setLoginStatus('Не удалось загрузить журнал. Повторите вход; при повторной ошибке нажмите «Восстановить вход». Код: D-20261009.', 'error');
     return;
   }
   const employee = state.employees.find((item) => item.username === currentProfile.username);
@@ -1127,11 +1142,12 @@ async function initializeAuth() {
   employee.isAdmin = Boolean(currentProfile.is_admin);
   state.sessionEmployeeId = employee.id;
   state.activeEmployeeId = employee.id;
+  setLoginStatus('', '');
   render();
   void globalThis.SchoolPasswords?.offer();
   } catch (error) {
     currentProfile = null;
-    setLoginStatus(SchoolAuth.message(error), 'error');
+    setLoginStatus(SchoolAuth.stageMessage(error, loginStage), 'error');
   } finally {
     authBusy = false;
     button.disabled = false;

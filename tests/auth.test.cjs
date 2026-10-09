@@ -117,3 +117,86 @@ test('SDK fetch timeout and caller cancellation abort the actual network request
   const controller=new AbortController();controller.abort();
   await assert.rejects(boundedFetch(fetcher)('https://example.test',{signal:controller.signal}),/aborted/);
 });
+
+test('deadline includes response body, even if transport ignores abort',async()=>{
+  let signal;
+  const fetcher=require('../auth-network.js').boundedFetch(async(_,options)=>{
+    signal=options.signal;
+    return {arrayBuffer:()=>new Promise(()=>{})};
+  },15);
+  await assert.rejects(fetcher('https://example.test'),{code:'CLIENT_TIMEOUT'});
+  assert.equal(signal.aborted,true);
+});
+
+test('buffered responses preserve JSON, error status and headers',async()=>{
+  for(const status of [200,400,503]) {
+    const fetcher=require('../auth-network.js').boundedFetch(async()=>new Response(
+      JSON.stringify({status}),{status,headers:{'content-type':'application/json','x-request-id':'test'}}));
+    const response=await fetcher('https://example.test');
+    assert.equal(response.status,status);
+    assert.equal(response.headers.get('x-request-id'),'test');
+    assert.deepEqual(await response.json(),{status});
+  }
+  const empty=await require('../auth-network.js').boundedFetch(async()=>new Response(null,{status:204}))('https://example.test');
+  assert.equal(empty.status,204);
+  assert.equal(await empty.text(),'');
+});
+
+test('caller can cancel after headers while body is still pending',async()=>{
+  const controller=new AbortController();let transportSignal;
+  const fetcher=require('../auth-network.js').boundedFetch(async(_,options)=>{
+    transportSignal=options.signal;
+    return {arrayBuffer:()=>{controller.abort();return new Promise(()=>{});}};
+  });
+  await assert.rejects(fetcher('https://example.test',{signal:controller.signal}),{name:'AbortError'});
+  assert.equal(transportSignal.aborted,true);
+});
+
+test('password sign-in retries transient failures once, never credentials or rate limits',async()=>{
+  const {signIn}=require('../auth-network.js');
+  for(const error of [{status:503},{name:'AuthRetryableFetchError'},{code:'invalid_credentials'}, {status:429}]) {
+    let calls=0,retries=0;
+    const credentials={email:'synthetic@example.invalid',password:'synthetic-password'};
+    const result=await signIn({auth:{signInWithPassword:async sent=>{
+      assert.equal(sent,credentials);calls++;
+      return calls===1?{error}:{data:{user:{id:'synthetic-user'}}};
+    }}},credentials,()=>retries++,async()=>{});
+    const retry=error.status===503||error.name==='AuthRetryableFetchError';
+    assert.equal(calls,retry?2:1);
+    assert.equal(retries,retry?1:0);
+    assert.equal(Boolean(result.error),!retry);
+  }
+  let calls=0;
+  await signIn({auth:{signInWithPassword:async()=>{calls++;throw new TypeError('fetch failed');}}},{},null,async()=>{})
+    .then(()=>assert.fail('must fail'),error=>assert.equal(error.name,'TypeError'));
+  assert.equal(calls,2);
+});
+
+test('stage diagnostics distinguish recovery, auth, profile and journal without server details',()=>{
+  const {stageMessage}=require('../auth-network.js');
+  for(const [stage,code] of [['session','S'],['auth','A'],['profile','P'],['data','D']]) {
+    const message=stageMessage({code:'CLIENT_TIMEOUT',message:'sensitive server details'},stage);
+    assert.ok(message.includes(`${code}-20261009`));
+    assert.ok(!message.includes('sensitive'));
+  }
+});
+
+test('session restore finishes before another login can start and clears loading text',async()=>{
+  const {ctx,button,event}=fixture();let release,signIns=0,deadline;
+  const querySelector=ctx.document.querySelector;
+  ctx.document.querySelector=selector=>selector.startsWith('#loginForm ')?button:querySelector(selector);
+  ctx.supabaseClient.auth.getSession=()=>new Promise(resolve=>release=resolve);
+  ctx.supabaseClient.auth.signInWithPassword=async()=>{signIns++;};
+  ctx.cloudRequest=(promise,timeout)=>{deadline=timeout;return Promise.resolve(promise);};
+  load('initializeAuth',ctx);
+  const pending=ctx.initializeAuth();
+  assert.equal(deadline,45000);
+  assert.equal(button.disabled,true);
+  await ctx.login(event);
+  assert.equal(signIns,0);
+  release({data:{session:null}});
+  await pending;
+  assert.equal(button.disabled,false);
+  assert.equal(ctx.authBusy,false);
+  assert.equal(ctx.message,'');
+});
