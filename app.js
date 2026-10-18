@@ -34,7 +34,7 @@ const weekdays = {
 };
 
 const workWeekdays = [1, 2, 3, 4, 5, 6];
-const lessonTypes = ["Специальность", "Музыкальный инструмент", "Изучение инструментов народного оркестра", "Постановка голоса", "Дирижирование", "Сольное пение", "Сценическая речь", "Ансамбль", "Оркестр", "Хор", "Коллективное музицирование", "Сольфеджио", "Музыкальная литература", "Элементарная теория музыки", "Слушание музыки", "Концертмейстер"];
+const lessonTypes = ["Специальность", "Музыкальный инструмент", "Изучение инструментов народного оркестра", "Постановка голоса", "Дирижирование", "Сольное пение", "Сценическая речь", "Ансамбль", "Оркестр", "Хор", "Коллективное музицирование", "Сольфеджио", "Музыкальная литература", "Элементарная теория музыки", "Слушание музыки", "Концертмейстер", "КЦ"];
 const educationForms = ["ДПП", "ДОП"];
 const dopSubjectName = "Музыкальные инструменты";
 const instrumentCatalog = [
@@ -175,7 +175,7 @@ document.addEventListener("click", (event) => {
   if (name === "scheduleDay") setActiveScheduleDay(Number(id));
   if (name === "addParticipant") addScheduleFromParticipant(id, activeScheduleWeekday);
   if (name === "addScheduleDay") openScheduleModal(Number(id));
-  if (name === 'addKcSchedule') openScheduleModal(activeScheduleWeekday, 'Концертмейстер');
+  if (name === 'addKcSchedule') openScheduleModal(activeScheduleWeekday, 'КЦ');
   if (name === "deleteSchedule") deleteScheduleRow(id);
   if (name === "archiveSchedule") openArchiveScheduleModal();
   if (name === 'correctScheduleStart') openScheduleStartCorrection();
@@ -262,6 +262,7 @@ document.addEventListener("drop", (event) => {
 });
 
 document.addEventListener("change", (event) => {
+  if (event.target.matches('[data-assessment-record]')) { setAssessment(event.target); return; }
   const pickerCheckbox = event.target.closest("[data-student-picker-choice]");
   if (pickerCheckbox) {
     setStudentPickerSelection(pickerCheckbox);
@@ -293,10 +294,14 @@ document.addEventListener("change", (event) => {
       delete form.dataset.lessonMinutes;
       form.elements.endTime.value = SchoolModel.endTime(form.elements.startTime.value, 0.5);
     }
-    if (type === 'Концертмейстер') {
+    if (type === 'КЦ') {
       const form = event.target.closest('form');
       form.elements.kcHours.value = String(Number(form.elements.pedHours.value.replace(',', '.')) + Number(form.elements.kcHours.value.replace(',', '.')) || 1);
       form.elements.pedHours.value = '0';
+    } else if (type === 'Концертмейстер') {
+      const form = event.target.closest('form');
+      form.elements.pedHours.value = String(Number(form.elements.pedHours.value.replace(',', '.')) + Number(form.elements.kcHours.value.replace(',', '.')) || 1);
+      form.elements.kcHours.value = '0';
     }
     return;
   }
@@ -1318,7 +1323,7 @@ function openHolidayModal(date) {
 }
 
 function openScheduleModal(weekday, type = 'Специальность') {
-  if (!visibleParticipants().length && canScheduleKc()) type = 'Концертмейстер';
+  if (!visibleParticipants().length && canScheduleKc()) type = 'КЦ';
   const participant = scheduleParticipants(type)[0];
   if (!participant) {
     alert("Сначала администратор должен назначить ученика или группу преподавателю.");
@@ -1374,40 +1379,46 @@ function assignStudentsToSelf(form) {
 }
 
 function courseOptionsFor(participantId, employeeId = state.activeEmployeeId, type = '') {
-  if (type === 'Концертмейстер' && canScheduleKc(employeeId)) {
+  if (type === 'КЦ' && canScheduleKc(employeeId)) {
     return (state.kcScheduleStudents || []).find(s => s.id === participantId)?.enrollments?.map((e,index) => ({
-      ...e, id: e.id || `kc-${participantId}-${index}`, subject: 'Концертмейстер'
+      ...e, id: e.id || `kc-${participantId}-${index}`, subject: 'КЦ'
     })) || [];
   }
   return SchoolModel.courses(participantById(participantId), employeeId);
 }
 
 function courseSelectOptions(row) {
-  const { simple, items } = SchoolModel.courseChoices(courseOptionsFor(row.studentId, row.employeeId, row.type), row.type);
+  if (SchoolModel.kcCollective(row.studentId)) return '<option value="">—</option>';
+  const { simple, items } = SchoolModel.courseChoices(courseOptionsFor(row.studentId, row.employeeId, SchoolModel.isKcLesson(row) ? 'КЦ' : row.type), row.type);
   return `<option value="" disabled ${items.some(e => e.id === row.enrollmentId) ? '' : 'selected'}>${items.length ? (simple ? 'Выберите инструмент' : 'Выберите предмет и инструмент') : 'Нет отдельных привязок'}</option>` + items.map(e =>
     `<option value="${escapeAttr(e.id)}" ${row.enrollmentId === e.id ? 'selected' : ''}>${escapeHtml(e.label)}</option>`).join('');
 }
 
 function refreshModalCourses(form) {
   if (!form) return;
-  const row = { studentId: form.elements.studentId.value, employeeId: state.activeEmployeeId, type: form.elements.type.value };
-  const {simple, items: courses} = SchoolModel.courseChoices(courseOptionsFor(row.studentId, row.employeeId, row.type), row.type);
+  const row = { studentId: form.elements.studentId.value, employeeId: state.activeEmployeeId, type: form.elements.type.value, kcKind:'pedagogical' };
+  const {simple, items: courses} = SchoolModel.courseChoices(courseOptionsFor(row.studentId, row.employeeId, SchoolModel.isKcLesson(row) ? 'КЦ' : row.type), row.type);
   form.querySelector('[data-course-label]').textContent = simple ? 'Инструмент' : 'Предмет · инструмент · класс';
   row.enrollmentId = courses.some(e => e.id === form.elements.enrollmentId.value) ? form.elements.enrollmentId.value : courses.length === 1 ? courses[0].id : '';
   form.elements.enrollmentId.innerHTML = courseSelectOptions(row);
   form.elements.enrollmentId.value = row.enrollmentId;
   form.elements.enrollmentId.required = courses.length > 0;
   const participant = participantById(row.studentId);
+  const collective = !!SchoolModel.kcCollective(row.studentId);
+  form.elements.className.readOnly = !collective;
+  form.elements.className.maxLength = 80;
+  form.elements.enrollmentId.disabled = collective;
   if (form.dataset.durationParticipant !== row.studentId) {
+    if (collective) form.elements.className.value = '';
     form.dataset.durationParticipant = row.studentId;
-    if (participant?.choirLevel && row.type !== 'Концертмейстер') {
+    if (participant?.choirLevel && row.type !== 'КЦ') {
       form.dataset.lessonMinutes = participant.defaultLessonMinutes;
       form.elements.pedHours.value = participant.defaultPedHours;
       form.elements.kcHours.value = '0'; form.elements.type.value = 'Хор';
     } else {
       delete form.dataset.lessonMinutes;
-      form.elements.pedHours.value = row.type === 'Концертмейстер' ? '0' : '1';
-      form.elements.kcHours.value = row.type === 'Концертмейстер' ? '1' : '0';
+      form.elements.pedHours.value = row.type === 'КЦ' ? '0' : '1';
+      form.elements.kcHours.value = row.type === 'КЦ' ? '1' : '0';
     }
     const hours = Number(form.elements.pedHours.value) + Number(form.elements.kcHours.value);
     form.elements.endTime.value = SchoolModel.endTime(form.elements.startTime.value, hours, form.dataset.lessonMinutes);
@@ -1439,6 +1450,7 @@ function lessonMemberIds(row) {
 }
 
 function snapshotLessonMembers(row) {
+  if (SchoolModel.kcCollective(row.studentId)) return {participantKind:'kc-collective', participantIds:[], participantNames:{}};
   const participantIds = lessonMemberIds(row);
   return {participantKind: row.participantKind === 'group' || state.groups.some(g => g.id === row.studentId) ? 'group' : 'student', participantIds,
     participantNames: Object.fromEntries(participantIds.map(id => [id, state.students.find(s => s.id === id)?.name || row.participantNames?.[id] || '']))};
@@ -1545,10 +1557,11 @@ function clearLegacyAttendance(record) {
 }
 
 function applyModalCourse(form) {
+  if (SchoolModel.kcCollective(form.elements.studentId.value)) return;
   const courses = courseOptionsFor(form.elements.studentId.value, state.activeEmployeeId, form.elements.type.value);
   const course = courses.find(e => e.id === form.elements.enrollmentId.value);
   form.elements.className.value = course?.className || (courses.length ? '' : participantById(form.elements.studentId.value)?.className || '');
-  if (course) form.elements.type.value = course.subject;
+  if (course && !['Концертмейстер','КЦ'].includes(form.elements.type.value)) form.elements.type.value = course.subject;
 }
 
 function initializeScheduleCourse(row) {
@@ -1652,16 +1665,21 @@ function updateScheduleField(field) {
   if (!row) return;
 
   const key = field.dataset.scheduleField;
-  if (key === 'type' && row.type === 'Концертмейстер' && field.value !== 'Концертмейстер'
+  if (SchoolModel.kcCollective(row.studentId) && key === 'type' && field.value !== 'КЦ') {
+    field.value = row.type; alert('Коллектив доступен только для вида КЦ.'); return;
+  }
+  if (key === 'type' && SchoolModel.isKcLesson(row) && field.value !== 'КЦ' && field.value !== 'legacy-kc'
     && !isAdmin() && !visibleParticipants().some(p => p.id === row.studentId)) {
     field.value = row.type;
     alert('Этот ученик доступен вам для занятий КЦ. Для педагогического занятия нужно назначение преподавателю.');
     return;
   }
   if (key === 'enrollmentId') {
-    const course = courseOptionsFor(row.studentId, row.employeeId, row.type).find(e => e.id === field.value);
+    const course = courseOptionsFor(row.studentId, row.employeeId, SchoolModel.isKcLesson(row) ? 'КЦ' : row.type).find(e => e.id === field.value);
     if (!course) return;
+    const previousType = row.type;
     SchoolModel.applyCourse(row, course);
+    if (previousType === 'Концертмейстер') row.type = previousType;
     if (course.termYears) row.termYears = course.termYears;
     updateHoursFromTime(row);
     refreshGeneratedJournalForScheduleChange(row);
@@ -1681,8 +1699,13 @@ function updateScheduleField(field) {
     row[key] = digitsOnly(field.value);
   } else {
     row[key] = field.value.trim();
+    if (key === 'type') {
+      if (row.type === 'legacy-kc') { row.type = 'Концертмейстер'; delete row.kcKind; }
+      else row.kcKind = row.type === 'Концертмейстер' ? 'pedagogical' : 'kc';
+      if (row.type === 'Концертмейстер' && row.kcKind === 'pedagogical') { row.pedHours = SchoolModel.lessonHours(row); row.kcHours = 0; }
+    }
     if (key === "type") {
-      if (row.type === 'Концертмейстер') {
+      if (SchoolModel.isKcLesson(row)) {
         row.kcHours=SchoolModel.lessonHours(row);row.pedHours=0;
         updateHoursFromTime(row);
       } else if (row.type === 'Дирижирование') {
@@ -2046,6 +2069,7 @@ function addScheduleFromModal(form) {
     groupId: "",
     className: participant.className || "",
     type: form.elements.type.value,
+    kcKind: form.elements.type.value === 'Концертмейстер' ? 'pedagogical' : 'kc',
     pedHours: Number(form.elements.pedHours.value.replace(',', '.')),
     kcHours: Number(form.elements.kcHours.value.replace(',', '.')),
     room: digitsOnly(form.elements.room.value)
@@ -2065,7 +2089,13 @@ function addScheduleFromModal(form) {
   }
   // Course supplies instrument/class; the explicit subject selected by the teacher wins.
   row.type = form.elements.type.value;
-  if (row.type === 'Концертмейстер') { row.kcHours += row.pedHours; row.pedHours = 0; }
+  if (SchoolModel.kcCollective(row.studentId)) {
+    row.type = 'КЦ'; row.className = form.elements.className.value.trim().slice(0,80);
+    row.participantKind = 'kc-collective'; row.participantIds = [];
+    row.instrument = ''; row.enrollmentId = ''; row.program = ''; row.termYears = '';
+  }
+  if (row.type === 'Концертмейстер') { row.pedHours += row.kcHours; row.kcHours = 0; }
+  if (SchoolModel.isKcLesson(row)) { row.kcHours += row.pedHours; row.pedHours = 0; }
   row.durationHours = (minutesFromTime(end) - minutesFromTime(start)) / 40;
   if (participant.choirLevel) {
     row.academicHours = row.pedHours + row.kcHours;
@@ -2270,6 +2300,43 @@ function setGrade(id, value, memberId) {
   persistAndRender();
 }
 
+function setAssessment(field) {
+  const record = state.records.find(r => r.id === field.dataset.assessmentRecord && r.employeeId === state.activeEmployeeId);
+  const pupil = field.dataset.assessmentPupil, kind = field.dataset.assessmentKind;
+  if (!record || !gradeValues().includes(field.value) || !['quarter','extra'].includes(kind)) return;
+  if (record.studentId !== pupil && !journalLessonRoster(record).participantIds.includes(pupil)) return;
+  if (globalThis.AbsenceJournal?.isAbsent(record.id) && kind === 'extra') return;
+  if (kind === 'quarter') record.quarterGrades = {...record.quarterGrades, [pupil]:field.value};
+  else {
+    const index = Number(field.dataset.assessmentIndex);
+    if (!Number.isInteger(index) || index<0 || index>3) return;
+    const values = [...(record.extraGrades?.[pupil] || ['', '', '', ''])];
+    values[index]=field.value;
+    record.extraGrades = {...record.extraGrades, [pupil]:values};
+  }
+  persistAndRender();
+}
+
+function assessmentControl(record,pupil,kind,value,label,index='') {
+  return `<span class="grade-control assessment-control"><span class="grade-value" aria-hidden="true">${escapeHtml(value || '—')}</span><select class="grade-select" aria-label="${escapeAttr(label)}" title="${escapeAttr(label)}" data-assessment-record="${escapeAttr(record.id)}" data-assessment-pupil="${escapeAttr(pupil)}" data-assessment-kind="${kind}" data-assessment-index="${index}">${gradeOptions(value)}</select></span>`;
+}
+
+function renderQuarterCells(entry,group) {
+  const reference = entry.records[0], pupil = entry.memberId || reference?.studentId;
+  return [1,2,3,4].map(q=>{
+    if(group || !reference) return '<td></td>';
+    const record=AssessmentModel.anchor(state.records,reference,pupil,q);
+    const value=record?.quarterGrades?.[pupil] || '';
+    return `<td class="quarter-cell">${record ? assessmentControl(record,pupil,'quarter',value,`${entry.name}: ${q} четверть`) : '—'}</td>`;
+  }).join('');
+}
+
+function renderExtraGrades(record,entry) {
+  if(record.isSubstitution) return '';
+  const pupil=entry.memberId || record.studentId, values=record.extraGrades?.[pupil] || [];
+  return `<span class="extra-grade-values">${values.filter(Boolean).map(escapeHtml).join(' / ')}</span><details class="extra-grades no-print"><summary title="Дополнительные оценки за контрольную работу" aria-label="Дополнительные оценки: ${escapeAttr(entry.name)}, ${escapeAttr(record.date)}">+</summary><div>${[0,1,2,3].map(i=>`<label>Форма ${i+1} ${assessmentControl(record,pupil,'extra',values[i]||'',`${entry.name}, ${record.date}, форма ${i+1}`,i)}</label>`).join('')}</div></details>`;
+}
+
 function generateSelectedMonth() {
   const month = document.querySelector("#journalMonth").value;
   const asOf = document.querySelector("#generateAsOf").value;
@@ -2333,6 +2400,7 @@ function refreshJournalMonth(month, asOf, employeeId) {
         program: row.program || '',
         room: row.room || '',
         type: row.type,
+        kcKind: row.kcKind,
         pedHours: row.pedHours,
         kcHours: row.kcHours,
         academicHours: previous?.hoursOverride ? previous.academicHours : row.academicHours,
@@ -2350,7 +2418,7 @@ function refreshJournalMonth(month, asOf, employeeId) {
 
   // Retain authored work when correcting a timetable removes its occurrence.
   previousRecords.filter(record => !reusedRecordIds.has(record.id) && (
-    record.grade || Object.values(record.studentGrades || {}).some(Boolean) || record.topic || record.rosterOverride || record.hoursOverride
+    record.grade || record.quarterGrades || record.extraGrades || Object.values(record.studentGrades || {}).some(Boolean) || record.topic || record.rosterOverride || record.hoursOverride
   )).forEach(record => state.records.push({...record, scheduleSuperseded: true}));
 
   return { created, removed };
@@ -2532,9 +2600,10 @@ function renderDraggableGroup(group) {
 
 function renderScheduleRow(row) {
   const participant = participantById(row.studentId);
+  const collective = !!SchoolModel.kcCollective(row.studentId);
   const time = scheduleTimeParts(row);
-  const simple = SchoolModel.courseChoices(courseOptionsFor(row.studentId, row.employeeId, row.type), row.type).simple;
-  const courseSelect = `<select class="schedule-course-select" aria-label="${simple ? 'Инструмент' : 'Предмет, инструмент и класс'}" data-schedule-id="${escapeAttr(row.id)}" data-schedule-field="enrollmentId">${courseSelectOptions(row)}</select>`;
+  const simple = SchoolModel.courseChoices(courseOptionsFor(row.studentId, row.employeeId, SchoolModel.isKcLesson(row) ? 'КЦ' : row.type), row.type).simple;
+  const courseSelect = collective ? '' : `<select class="schedule-course-select" aria-label="${simple ? 'Инструмент' : 'Предмет, инструмент и класс'}" data-schedule-id="${escapeAttr(row.id)}" data-schedule-field="enrollmentId">${courseSelectOptions(row)}</select>`;
   const groupMembers = participant?.kind === 'group' ? lessonMemberIds(row) : [];
   const membersControl = participant?.kind === 'group' ? `<button type="button" class="mini-button lesson-members-button" data-action="lessonMembers:${escapeAttr(row.id)}">Состав занятия: ${groupMembers.length} уч.</button><details class="lesson-roster"><summary>Фамилии участников</summary>${groupMembers.map(id => escapeHtml(state.students.find(s => s.id === id)?.name || 'Ученик не загружен')).join('<br>') || 'Состав не выбран'}</details><small>По составу: ${formatNumber(SchoolModel.lessonHours(row) * groupMembers.length)} чел.-ч. за занятие</small>` : '';
   return `
@@ -2548,8 +2617,8 @@ function renderScheduleRow(row) {
         <button class="lesson-duration-button" type="button" data-action="lessonDuration:${escapeAttr(row.id)}">${row.academicHours != null ? `${formatNumber(row.lessonMinutes)} мин · отдельно от нагрузки` : 'Длительность'}</button>
       </td>
       <td class="participant-cell" data-label="Ученик / группа"><strong>${escapeHtml(participant?.name || "Не найдено")}</strong>${participant?.kind === 'group' ? membersControl : simple ? '' : courseSelect}</td>
-      <td class="class-cell" data-label="Класс">${escapeHtml(row.className ? journalClassLabel(row) : (courseOptionsFor(row.studentId, row.employeeId).length ? 'Выберите предмет' : compactJournalClass(participant?.className, participant?.termYears)))}</td>
-      <td class="schedule-type-cell" data-label="Предмет"><select class="type-input" aria-label="Предмет" data-schedule-id="${row.id}" data-schedule-field="type">${lessonTypeOptions(row.type)}</select>${simple ? courseSelect : ''}</td>
+      <td class="class-cell" data-label="Класс">${collective ? `<input type="text" maxlength="80" aria-label="Класс коллектива" value="${escapeAttr(row.className || '')}" data-schedule-id="${escapeAttr(row.id)}" data-schedule-field="className" />` : escapeHtml(row.className ? journalClassLabel(row) : (courseOptionsFor(row.studentId, row.employeeId).length ? 'Выберите предмет' : compactJournalClass(participant?.className, participant?.termYears)))}</td>
+      <td class="schedule-type-cell" data-label="Предмет"><select class="type-input" aria-label="Предмет" data-schedule-id="${row.id}" data-schedule-field="type">${lessonTypeOptions(row.type, row.kcKind || 'legacy')}</select>${simple ? courseSelect : ''}</td>
       <td class="schedule-ped-cell" data-label="Пед."><input class="hours-input" type="text" inputmode="decimal" aria-label="Педагогические часы" value="${escapeAttr(SchoolModel.roundHours(row.pedHours))}" data-schedule-id="${escapeAttr(row.id)}" data-schedule-field="pedHours" data-hour-field /></td>
       <td class="schedule-kc-cell" data-label="Кц"><input class="hours-input" type="text" inputmode="decimal" aria-label="Концертмейстерские часы" value="${escapeAttr(SchoolModel.roundHours(row.kcHours))}" data-schedule-id="${escapeAttr(row.id)}" data-schedule-field="kcHours" data-hour-field /></td>
       <td class="schedule-room-cell" data-label="Кабинет"><input class="room-input" type="text" inputmode="numeric" value="${escapeAttr(digitsOnly(row.room || ""))}" data-numeric-input data-schedule-id="${row.id}" data-schedule-field="room" /></td>
@@ -2834,7 +2903,7 @@ function renderJournal() {
     return;
   }
 
-  const columnCount = dates.length + 6;
+  const columnCount = dates.length + 10;
   const rows = journalSections(records).map((section) => `
     <tr class="journal-program-row"><td colspan="${columnCount}">${escapeHtml(section.educationForm)}</td></tr>
     ${section.subjects.map((subject) => `
@@ -2855,6 +2924,7 @@ function renderJournal() {
           <th class="student-cell">Фамилия и имя обучающегося</th>
           <th class="class-cell" title="Класс / срок обучения в годах">Класс / срок</th>
           ${head}
+          <th class="quarter-cell" title="I четверть">I четв.</th><th class="quarter-cell" title="II четверть">II четв.</th><th class="quarter-cell" title="III четверть">III четв.</th><th class="quarter-cell" title="IV четверть">IV четв.</th>
           <th class="summary-cell">Пед.</th>
           <th class="summary-cell">Конц.</th>
           <th class="summary-cell" title="Пед. + Кц за месяц для этой строки">Итого</th>
@@ -2899,6 +2969,7 @@ function compactJournalClass(value, termYears) {
 }
 
 function journalClassLabel(record, memberId) {
+  if (SchoolModel.kcCollective(record.studentId)) return record.className || '';
   const group = state.groups.find(g => g.id === record.studentId);
   const pupil = state.students.find(s => s.id === (memberId || record.studentId));
   const stored = record.className || group?.className || (!memberId ? pupil?.className : '') || '';
@@ -2963,6 +3034,7 @@ function renderJournalEntry(entry, dates) {
   return `<tr class="${group ? 'journal-group-row' : entry.memberId ? 'journal-pupil-row' : ''}">
     <td class="student-cell">${escapeHtml(entry.name)}${instrumentLabel}</td><td class="class-cell"${classTitle}>${escapeHtml(className)}</td>
     ${dates.map(date => renderJournalCell(entry, date)).join('')}
+    ${renderQuarterCells(entry,group)}
     <td class="summary-cell">${entry.memberId ? '—' : formatNumber(sum(countable, 'pedHours'))}</td>
     <td class="summary-cell">${entry.memberId ? '—' : formatNumber(sum(countable, 'kcHours'))}</td>
     <td class="summary-cell">${formatNumber(countable.filter(r => !entry.memberId || journalLessonRoster(r).participantIds.includes(entry.memberId)).reduce((total,r) => total + SchoolModel.lessonHours(r), 0))}</td>
@@ -3049,7 +3121,7 @@ function renderJournalCell(entry, date) {
     return `
       <div class="journal-lesson"><span class="grade-control"><span class="grade-value" aria-hidden="true">${escapeHtml(grade || '•')}</span><select class="grade-select" aria-label="Оценка ${escapeAttr(entry.name)} за ${escapeAttr(date)}" title="${escapeHtml(record.time)} ${escapeHtml(SchoolModel.subjectLabel(record))} · ${formatNumber(SchoolModel.roundHours(record.pedHours))} пед. / ${formatNumber(SchoolModel.roundHours(record.kcHours))} конц." data-grade-record="${escapeAttr(record.id)}" ${entry.memberId ? `data-grade-student="${escapeAttr(entry.memberId)}"` : ''}>
         ${gradeOptions(grade)}
-      </select></span><small class="print-lesson-details">${escapeHtml(details)}</small></div>
+      </select></span>${renderExtraGrades(record,entry)}<small class="print-lesson-details">${escapeHtml(details)}</small></div>
     `;
   }).join("");
 
@@ -3438,8 +3510,8 @@ function employeeScheduleHistory() {
 }
 
 function employeeRecords() {
-  const records = state.records.filter((record) => record.employeeId === state.activeEmployeeId && !record.scheduleSuperseded);
-  return globalThis.AbsenceJournal ? globalThis.AbsenceJournal.projected(state.activeEmployeeId,records) : records;
+  const records = state.records.filter((record) => record.employeeId === state.activeEmployeeId && !record.scheduleSuperseded && record.type !== 'КЦ');
+  return (globalThis.AbsenceJournal ? globalThis.AbsenceJournal.projected(state.activeEmployeeId,records) : records).filter(r => r.type !== 'КЦ');
 }
 
 function activeEmployee() {
@@ -3514,6 +3586,7 @@ function visibleParticipants() {
 }
 
 function participantById(id) {
+  if (SchoolModel.kcCollective(id)) return SchoolModel.kcCollective(id);
   const student = state.students.find((item) => item.id === id) || (state.kcScheduleStudents || []).find(item => item.id === id);
   if (student) return { ...student, kind: "student" };
   const group = state.groups.find((item) => item.id === id);
@@ -3554,6 +3627,7 @@ function plannedFromSchedule(daysAhead) {
         studentName: studentName(row.studentId),
         className: row.className,
         type: row.type,
+        kcKind: row.kcKind,
         pedHours: row.pedHours,
         kcHours: row.kcHours
       });
@@ -3710,7 +3784,7 @@ function updateHoursFromTime(row) {
   if (total > 0) {
     row.kcHours = SchoolModel.roundHours(units * Number(row.kcHours || 0) / total);
     row.pedHours = units - row.kcHours;
-  } else if (row.type === "Концертмейстер") {
+  } else if (SchoolModel.isKcLesson(row)) {
     row.kcHours = units;
     row.pedHours = 0;
   } else {
@@ -3752,8 +3826,8 @@ function canScheduleKc(employeeId = state.activeEmployeeId) {
 }
 
 function scheduleParticipants(type) {
-  if (type === 'Концертмейстер' && canScheduleKc()) {
-    return uniqueById([...(state.kcScheduleStudents || []).map(s => ({...s,kind:'student'})), ...visibleParticipants()]);
+  if (type === 'КЦ' && canScheduleKc()) {
+    return uniqueById([...SchoolModel.kcCollectives, ...(state.kcScheduleStudents || []).map(s => ({...s,kind:'student'})), ...visibleParticipants()]);
   }
   return visibleParticipants();
 }
@@ -3885,7 +3959,9 @@ function nextGroupExternalId() {
   return `G-${String(state.groups.length + 1).padStart(4, "0")}`;
 }
 
-function lessonTypeOptions(selectedType) {
+function lessonTypeOptions(selectedType, kcKind = 'pedagogical') {
+  const legacy = selectedType === 'Концертмейстер' && kcKind !== 'pedagogical';
+  if (legacy) return '<option value="legacy-kc" selected>Концертмейстер — уточните вид</option>' + lessonTypeOptions('');
   return lessonTypes.map((type) => {
     const selected = type === selectedType ? "selected" : "";
     return `<option value="${escapeAttr(type)}" ${selected}>${escapeHtml(type)}</option>`;

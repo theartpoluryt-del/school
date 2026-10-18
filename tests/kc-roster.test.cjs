@@ -12,22 +12,22 @@ function fixture(){
 }
 test('KC can select every server-provided pupil only for KC, not in ordinary teaching',()=>{
  const c=fixture();assert.equal(c.canScheduleKc(),true);
- assert.deepEqual(Array.from(c.scheduleParticipants('Концертмейстер'),p=>p.id),['other','own']);
+ assert.deepEqual(Array.from(c.scheduleParticipants('КЦ'),p=>p.id),['kc-collective-music','kc-choir-io','kc-choir-ho','other','own']);
  assert.deepEqual(Array.from(c.scheduleParticipants('Специальность'),p=>p.id),['own']);
- assert.match(c.participantOptions('other','Концертмейстер'),/value="other" selected/);
+ assert.match(c.participantOptions('other','КЦ'),/value="other" selected/);
  assert.equal(c.participantById('other').name,'Other');
  c.state.activeEmployeeId='another';assert.equal(c.canScheduleKc(),false);
 });
 test('KC course selection preserves instrument and class without inventing teacher assignments',()=>{
- const c=fixture();const options=c.courseOptionsFor('other','kc','Концертмейстер');
+ const c=fixture();const options=c.courseOptionsFor('other','kc','КЦ');
  assert.equal(options.length,2);assert.equal(options[0].className,'3 кл');assert.equal(options[1].instrument,'Саксофон');
- assert.equal(options[0].subject,'Концертмейстер');assert.equal(options[0].termYears,8);
+ assert.equal(options[0].subject,'КЦ');assert.equal(options[0].termYears,8);
  assert.equal(c.courseOptionsFor('other','kc','Специальность').length,0);
  assert.equal(c.state.kcScheduleStudents[0].enrollments[0].employeeIds,undefined);
 });
 test('ordinary teachers get no KC schedule button or unrestricted roster',()=>{
  const c=fixture();c.state.kcScheduleEmployeeIds=[];c.state.kcScheduleStudents=[];
- assert.equal(c.canScheduleKc(),false);assert.equal(c.scheduleParticipants('Концертмейстер').length,1);
+ assert.equal(c.canScheduleKc(),false);assert.equal(c.scheduleParticipants('КЦ').length,1);
 });
 test('KC roster is authoritative server metadata, never a pupil edit or writable cloud field',()=>{
  const c=fixture(),before=structuredClone(c.state),payload=c.cloudPayload();

@@ -37,7 +37,7 @@ test('choosing KC timetable type moves the workload to KC without changing the c
     updateHoursFromTime:r=>{r.kcHours=schoolModel.lessonHours(r);},
     refreshGeneratedJournalForScheduleChange:()=>refresh++,persistAndRender:()=>saves++});
   vm.runInContext(js.slice(js.indexOf('function updateScheduleField('),js.indexOf('function handleTimeInput(')),c);
-  c.updateScheduleField({dataset:{scheduleId:'row',scheduleField:'type'},value:'Концертмейстер'});
+  c.updateScheduleField({dataset:{scheduleId:'row',scheduleField:'type'},value:'КЦ'});
   assert.equal(row.kcHours,2);assert.equal(row.pedHours,0);assert.equal(row.time,'09:00-10:25');
   assert.equal(refresh,1);assert.equal(saves,1);
 });

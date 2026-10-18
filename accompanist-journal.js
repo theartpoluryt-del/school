@@ -24,10 +24,10 @@
     el('kcTotal').textContent=loaded?`Итого: ${formatNumber(AccompanistModel.total(lessons))} ч. КЦ`:'';
     const dates=[...new Set(lessons.map(l=>l.lesson_date))].sort();
     if(!loaded||!lessons.length) {
-      el('kcMatrix').innerHTML=loaded?'<p class="empty-state">В этом месяце нет занятий КЦ. Добавьте их в расписание с видом «Концертмейстер» и нужной датой начала.</p>':'';
+      el('kcMatrix').innerHTML=loaded?'<p class="empty-state">В этом месяце нет занятий КЦ. Добавьте их в расписание с видом «КЦ» и нужной датой начала.</p>':'';
       controls(); return;
     }
-    el('kcMatrix').innerHTML=`<table class="paid-table kc-table"><thead><tr><th>Ученик / состав занятия</th><th>Предмет</th>${dates.map(d=>`<th>${escapeHtml(d.slice(8)+'.'+d.slice(5,7))}</th>`).join('')}<th>Итого КЦ</th></tr></thead><tbody>${AccompanistModel.rows(lessons).map(row=>`<tr>
+    el('kcMatrix').innerHTML=`${lessons.some(l=>l.legacyKind)?'<p class="muted-note no-print">Есть старые занятия «Концертмейстер». Уточните их вид в расписании: «КЦ» для работы концертмейстера или «Концертмейстер» для педагогического урока. До уточнения их учёт сохранён.</p>':''}<table class="paid-table kc-table"><thead><tr><th>Ученик / состав занятия</th><th>Предмет</th>${dates.map(d=>`<th>${escapeHtml(d.slice(8)+'.'+d.slice(5,7))}</th>`).join('')}<th>Итого КЦ</th></tr></thead><tbody>${AccompanistModel.rows(lessons).map(row=>`<tr>
       <th scope="row">${row.students.map(s=>escapeHtml(s.name)).join('<br>')}</th><td>${escapeHtml(row.subject)}${row.className?`<br><small>${escapeHtml(classLabel({courses:[row]}))}</small>`:''}</td>
       ${dates.map(d=>`<td>${row.lessons.filter(l=>l.lesson_date===d).map(l=>`<button class="kc-hours" data-kc-edit="${escapeAttr(l.id)}" title="${escapeAttr(l.time||'')}" aria-label="Изменить часы: ${escapeAttr(row.students.map(s=>s.name).join(', '))}, ${escapeAttr(formatDate(d))}">${formatNumber(l.hours)}</button>`).join(' ')||'—'}</td>`).join('')}
       <td>${formatNumber(AccompanistModel.total(row.lessons))}</td></tr>`).join('')}</tbody><tfoot><tr><th colspan="2">Итого КЦ</th>${dates.map(d=>`<td>${formatNumber(AccompanistModel.total(lessons.filter(l=>l.lesson_date===d)))}</td>`).join('')}<td>${formatNumber(AccompanistModel.total(lessons))}</td></tr></tfoot></table>`;
@@ -78,6 +78,7 @@
     finally {if(request===serial) {busy=false;draw();}}
   }
   function classLabel(student) {
+    if (student.courses?.[0]?.collective) return student.courses[0].className || '';
     return [...new Set((student.courses||[]).map(c=>{
       const cls=String(c.className||'').match(/\d+/)?.[0];return cls?`${cls}${c.termYears?'/'+c.termYears:''}`:'';
     }).filter(Boolean))].join(', ')||student.className||'';

@@ -66,13 +66,24 @@
     return roundHours(rawLessonHours(lesson));
   }
   function personHours(lesson) {
+    if (lesson.type === 'КЦ') return 0;
     if (!Array.isArray(lesson.participantIds)) return null;
     const members = memberIds(lesson);
     if (!members.length) return null;
     // Person-hours are allocated by the lesson roster, regardless of actual attendance.
     return lessonHours(lesson) * members.length;
   }
-  const api = { roundHours, courses, courseLabel, courseChoices, applyCourse, endTime, subjectLabel, memberIds, lessonHours, personHours };
+  // Unclassified legacy rows retain their previous accounting until a teacher chooses a kind.
+  function isKcLesson(row) {
+    return row.type === 'КЦ' || (row.type === 'Концертмейстер' && row.kcKind !== 'pedagogical');
+  }
+  const kcCollectives = [
+    {id:'kc-collective-music',name:'Коллективное музицирование',kind:'kc-collective'},
+    {id:'kc-choir-io',name:'Хор ИО',kind:'kc-collective'},
+    {id:'kc-choir-ho',name:'Хор ХО',kind:'kc-collective'}
+  ];
+  const kcCollective = id => kcCollectives.find(p => p.id === id);
+  const api = { isKcLesson, kcCollectives, kcCollective, roundHours, courses, courseLabel, courseChoices, applyCourse, endTime, subjectLabel, memberIds, lessonHours, personHours };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SchoolModel = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

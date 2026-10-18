@@ -18,14 +18,14 @@ function fixture() {
     monthDates:()=>['2026-09-14','2026-09-21'],
     parseISO:d=>new Date(d+'T12:00:00'),isHoliday:()=>false,createId:()=> 'id-'+(++seq),
     studentName:()=> 'Test pupil',participantById:()=>null,educationFormForParticipant:()=> 'ДПП',
-    SchoolModel:require('../school-model.js'),escapeHtml:String,escapeAttr:String,formatNumber:String,
+    AssessmentModel:require('../assessment-model.js'),SchoolModel:require('../school-model.js'),escapeHtml:String,escapeAttr:String,formatNumber:String,
     formatDate:String,normalizeEducationForm:form=>form || 'ДПП',
     checkedValues:form=>form.memberIds,closeModal(){},persistAndRender:()=>{ctx.saved=true;},
     openModal:(title,html)=>{ctx.modalHtml=html;},alert:message=>{ctx.alert=message;},
     lessonMemberCandidates:group=>ctx.state.students.filter(s=>group.studentIds.includes(s.id)),
     uniqueTextValues:values=>[...new Set(values.filter(Boolean))]
   });
-  ['refreshJournalMonth','refreshGeneratedJournalForScheduleChange','activeScheduleForEmployeeDate',
+  ['setAssessment','assessmentControl','renderQuarterCells','renderExtraGrades','refreshJournalMonth','refreshGeneratedJournalForScheduleChange','activeScheduleForEmployeeDate',
     'gradeOptions','renderJournalCell','snapshotLessonMembers','lessonMemberIds','journalLessonRoster',
     'journalRosterLabel','renderPersonHoursTotal','renderLessonRosterPrintReport','journalTotals',
     'renderJournalTotal','journalStudentTotals','renderJournalStudentTotals','countableRecord','countableStatus','saveLessonMembers','gradeValues','clearLegacyAttendance',
@@ -35,6 +35,31 @@ function fixture() {
     'syncGroupSchedule','correctScheduleStart','employeeSchedule','currentScheduleEffectiveFrom','addDaysISO','initializeScheduleCourse','updateScheduleField'].forEach(n=>load(n,ctx));
   return ctx;
 }
+
+test('quarter and extra grades belong to one pupil, print, and survive journal regeneration',()=>{
+ const c=fixture();
+ c.state.schedule=[{id:'s',employeeId:'t',studentId:'g',participantKind:'group',participantIds:['a','b'],type:'Сольфеджио',className:'1/5',weekday:1,time:'10:00-10:40',effectiveFrom:'2026-09-01',pedHours:1}];
+ c.state.students=[{id:'a',name:'A'},{id:'b',name:'B'}];c.state.groups=[{id:'g',studentIds:['a','b']}];
+ c.refreshJournalMonth('2026-09','2026-09-30','t');const r=c.state.records[0];
+ c.setAssessment({value:'5',dataset:{assessmentRecord:r.id,assessmentPupil:'a',assessmentKind:'quarter'}});
+ c.setAssessment({value:'4+',dataset:{assessmentRecord:r.id,assessmentPupil:'a',assessmentKind:'extra',assessmentIndex:'2'}});
+ c.setAssessment({value:'2',dataset:{assessmentRecord:r.id,assessmentPupil:'stranger',assessmentKind:'quarter'}});
+ c.refreshJournalMonth('2026-09','2026-09-30','t');const after=c.state.records.find(x=>x.id===r.id);
+ assert.equal(after.quarterGrades.a,'5');assert.equal(after.quarterGrades.b,undefined);assert.equal(after.quarterGrades.stranger,undefined);
+ assert.deepEqual(Array.from(after.extraGrades.a),['','','4+','']);assert.equal(after.grade,'');
+ const html=c.renderJournalEntry({name:'A',memberId:'a',records:[after],className:'1/5'},[after.date]);
+ assert.match(html,/I|четверть/);assert.match(html,/extra-grade-values">4\+/);assert.match(html,/data-assessment-kind="quarter"/);
+ c.state.schedule=[];c.refreshJournalMonth('2026-09','2026-09-30','t');
+ assert.equal(c.state.records.find(x=>x.id===r.id).quarterGrades.a,'5');
+});
+
+test('pedagogical accompaniment keeps its kind and pupil hours when regenerating the journal',()=>{
+  const c=fixture();
+  c.state.schedule=[{id:'s',employeeId:'t',studentId:'a',participantIds:['a'],type:'Концертмейстер',kcKind:'pedagogical',weekday:1,time:'10:00-10:40',effectiveFrom:'2026-09-01',pedHours:1,kcHours:0}];
+  c.refreshJournalMonth('2026-09','2026-09-30','t');
+  assert.ok(c.state.records.every(r=>r.kcKind==='pedagogical' && !c.SchoolModel.isKcLesson(r) && c.SchoolModel.personHours(r)===1));
+  assert.equal(c.SchoolModel.personHours({type:'Концертмейстер',participantIds:['a'],pedHours:1}),1);
+});
 
 test('a new group enters an already generated month without needing an existing schedule record',()=>{
   const c=fixture();c.document={querySelector:()=>({value:'2026-09'})};
