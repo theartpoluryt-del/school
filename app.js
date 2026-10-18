@@ -1426,7 +1426,10 @@ function refreshModalCourses(form) {
   form.querySelector('[data-modal-duration-note]').textContent = participant?.choirLevel
     ? `${participant.defaultLessonMinutes} минут; ${participant.defaultPedHours} ч. нагрузки. Два занятия в неделю: добавьте каждое в нужный день. Минуты и нагрузка хранятся отдельно.`
     : 'Укажите часы в Пед. или Кц: 1 час = 40 минут. Окончание рассчитается автоматически.';
-  form.elements.enrollmentId.closest('label').classList.toggle('is-hidden', participant?.kind === 'group');
+  form.elements.enrollmentId.closest('label').classList.toggle('is-hidden', collective || participant?.kind === 'group');
+  form.elements.type.innerHTML = collective
+    ? '<option value="КЦ" selected>Концертмейстер</option>'
+    : lessonTypeOptions(row.type);
   const previousMembers = form.querySelector('[data-modal-members]');
   const selectedMembers = previousMembers?.dataset.groupId === row.studentId ? checkedValues(form, 'lessonMemberIds') : participant?.studentIds || [];
   previousMembers?.remove();
@@ -2618,7 +2621,7 @@ function renderScheduleRow(row) {
       </td>
       <td class="participant-cell" data-label="Ученик / группа"><strong>${escapeHtml(participant?.name || "Не найдено")}</strong>${participant?.kind === 'group' ? membersControl : simple ? '' : courseSelect}</td>
       <td class="class-cell" data-label="Класс">${collective ? `<input type="text" maxlength="80" aria-label="Класс коллектива" value="${escapeAttr(row.className || '')}" data-schedule-id="${escapeAttr(row.id)}" data-schedule-field="className" />` : escapeHtml(row.className ? journalClassLabel(row) : (courseOptionsFor(row.studentId, row.employeeId).length ? 'Выберите предмет' : compactJournalClass(participant?.className, participant?.termYears)))}</td>
-      <td class="schedule-type-cell" data-label="Предмет"><select class="type-input" aria-label="Предмет" data-schedule-id="${row.id}" data-schedule-field="type">${lessonTypeOptions(row.type, row.kcKind || 'legacy')}</select>${simple ? courseSelect : ''}</td>
+      <td class="schedule-type-cell" data-label="Предмет"><select class="type-input" aria-label="Предмет" data-schedule-id="${row.id}" data-schedule-field="type">${collective ? '<option value="КЦ" selected>Концертмейстер</option>' : lessonTypeOptions(row.type, row.kcKind || 'legacy')}</select>${simple ? courseSelect : ''}</td>
       <td class="schedule-ped-cell" data-label="Пед."><input class="hours-input" type="text" inputmode="decimal" aria-label="Педагогические часы" value="${escapeAttr(SchoolModel.roundHours(row.pedHours))}" data-schedule-id="${escapeAttr(row.id)}" data-schedule-field="pedHours" data-hour-field /></td>
       <td class="schedule-kc-cell" data-label="Кц"><input class="hours-input" type="text" inputmode="decimal" aria-label="Концертмейстерские часы" value="${escapeAttr(SchoolModel.roundHours(row.kcHours))}" data-schedule-id="${escapeAttr(row.id)}" data-schedule-field="kcHours" data-hour-field /></td>
       <td class="schedule-room-cell" data-label="Кабинет"><input class="room-input" type="text" inputmode="numeric" value="${escapeAttr(digitsOnly(row.room || ""))}" data-numeric-input data-schedule-id="${row.id}" data-schedule-field="room" /></td>
@@ -2728,7 +2731,7 @@ function renderSchedulePrintRow(row) {
   return `
     <tr>
       <td>${escapeHtml(weekdays[row.weekday] || "")}</td>
-      <td><strong>${escapeHtml(participant?.name || "Не найдено")}</strong><small>${escapeHtml(SchoolModel.subjectLabel(row))}</small>${groupDetails}</td>
+      <td><strong>${escapeHtml(participant?.name || "Не найдено")}</strong>${SchoolModel.kcCollective(row.studentId) ? '' : `<small>${escapeHtml(SchoolModel.subjectLabel(row))}</small>`}${groupDetails}</td>
       <td>${escapeHtml(journalClassLabel(row) || compactJournalClass(participant?.className, participant?.termYears))}</td>
       <td>${formatNumber(SchoolModel.roundHours(row.pedHours))}</td>
       <td>${formatNumber(SchoolModel.roundHours(row.kcHours))}</td>
