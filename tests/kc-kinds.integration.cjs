@@ -43,6 +43,8 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
  const legacyHash=journal.lessons[0].source_hash;
  const migration=fs.readFileSync(path.join(__dirname,'../supabase/kc_kinds_assessments.sql'),'utf8');
  await db.exec(migration);await db.exec(migration);
+ for(const file of ['context_performance.sql','patch_batch_performance.sql','patch_batch_performance.sql','assessment_performance.sql','assessment_performance.sql','roster_validation_performance.sql','roster_validation_performance.sql'])
+  await db.exec(fs.readFileSync(path.join(__dirname,'../supabase',file),'utf8'));
  const after=(await db.query("select get_accompanist_journal('kc','2026-10-01') as j")).rows[0].j;
  // Timetable time was changed above; compare to the same original time before asserting old hash.
  c=await context(); await save('schedule',c.payload.schedule[0],row);
@@ -70,6 +72,22 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
  await assert.rejects(save('records',rec,{...rec,quarterGrades:{stranger:'5'}}),e=>e.code==='42501');
  await assert.rejects(save('records',rec,{...rec,extraGrades:{p1:['6','','','']}}),e=>e.code==='22023');
  await save('records',rec,null);await save('schedule',ped,null);
+ // Batch edits preserve order, repeated operations, independent field merging,
+ // request replay, and the original ownership/occurrence protections.
+ const bulk=Array.from({length:400},(_,i)=>({...rec,id:`bulk-${i}`,date:`2026-11-${i}`,scheduleId:`s-${i}`}));
+ const request=randomUUID(), ops=bulk.map(after=>({collection:'records',id:after.id,before:null,after}));
+ await db.query('select save_school_changes($1,$2)',[ops,request]);
+ await db.query('select save_school_changes($1,$2)',[ops,request]);
+ assert.deepEqual((await context()).payload.records.filter(r=>r.id.startsWith('bulk-')),bulk);
+ const first=bulk[0], edited={...first,topic:'First'};
+ await db.query('select save_school_changes($1,$2)',[[
+  {collection:'records',id:first.id,before:first,after:edited},
+  {collection:'records',id:first.id,before:first,after:{...first,grade:'4'}}],randomUUID()]);
+ const merged=(await context()).payload.records.find(r=>r.id===first.id);
+ assert.equal(merged.topic,'First');assert.equal(merged.grade,'4');
+ await assert.rejects(save('records',first,{...first,topic:'Conflict'}),e=>e.code==='PT409');
+ await assert.rejects(save('records',null,{...first,id:'duplicate'}),e=>e.code==='PT409');
+ await db.query('select save_school_changes($1,$2)',[bulk.map(before=>({collection:'records',id:before.id,before:before.id===first.id?merged:before,after:null})),randomUUID()]);
  await as(teacher);c=await context();assert.deepEqual(c.payload.kcScheduleStudents,[]);assert.deepEqual(c.payload.kcScheduleEmployeeIds,[]);
  await assert.rejects(save('schedule',null,{...row,id:'not-kc',employeeId:'teacher',studentId:'unknown'}),e=>e.code==='42501');
  await as(admin);c=await context();assert.equal(c.payload.kcScheduleEmployeeIds.length,2);

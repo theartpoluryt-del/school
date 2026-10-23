@@ -18,7 +18,7 @@ function fixture({username='admin',profileError=null,missing=false,cloudOk=true}
   const profile={id:'auth-id',username:'admin',is_admin:true};
   const button={disabled:false};
   const ctx=vm.createContext({
-    console:{warn(){}},currentProfile:null,profileLoadError:null,authBusy:false,
+    console:{warn(){}},currentProfile:null,profileLoadError:null,authBusy:false,hasPendingSession:false,
     SchoolAuth:require('../auth-network.js'),cloudRequest:r=>Promise.resolve(r),
     state:{employees:[{id:'employee-id',username:'admin'}]},
     document:{querySelector:s=>({value:s==='#loginUsername'?username:'synthetic-password'})},
@@ -39,7 +39,8 @@ test('API outage is not misreported as missing profile; access remains closed',a
   assert.match(ctx.message,/сервер временно недоступен/);
   assert.equal(ctx.currentProfile,null);
   assert.equal(ctx.state.sessionEmployeeId,undefined);
-  assert.equal(ctx.signedOut,true);
+  assert.equal(ctx.signedOut,undefined);
+  assert.equal(ctx.hasPendingSession,true);
   assert.equal(button.disabled,false);
 });
 test('genuinely missing employee profile is distinguished from outage',async()=>{
@@ -47,6 +48,7 @@ test('genuinely missing employee profile is distinguished from outage',async()=>
   await ctx.login(event);
   assert.match(ctx.message,/Профиль сотрудника не настроен/);
   assert.equal(ctx.state.sessionEmployeeId,undefined);
+  assert.equal(ctx.hasPendingSession,false);
 });
 test('school data failure does not grant a local admin session',async()=>{
   const {ctx,event}=fixture({cloudOk:false});
@@ -54,6 +56,7 @@ test('school data failure does not grant a local admin session',async()=>{
   assert.match(ctx.message,/Не удалось загрузить школьную базу/);
   assert.equal(ctx.currentProfile,null);
   assert.equal(ctx.state.sessionEmployeeId,undefined);
+  assert.equal(ctx.hasPendingSession,true);
 });
 test('login casing is normalized and own employee selected after server verification',async()=>{
   const {ctx,event}=fixture({username:' Admin '});
@@ -199,4 +202,44 @@ test('session restore finishes before another login can start and clears loading
   assert.equal(button.disabled,false);
   assert.equal(ctx.authBusy,false);
   assert.equal(ctx.message,'');
+});
+
+test('journal retry uses the accepted session, rechecks access, and never resends a password',async()=>{
+  const {ctx,button,event}=fixture({cloudOk:false});
+  await ctx.login(event);
+  assert.equal(ctx.hasPendingSession,true);
+  assert.equal(ctx.state.sessionEmployeeId,undefined);
+  const querySelector=ctx.document.querySelector;
+  ctx.document.querySelector=s=>s.startsWith('#loginForm ')?button:querySelector(s);
+  ctx.supabaseClient.auth.getSession=async()=>({data:{session:{user:{id:'auth-id'}}}});
+  ctx.supabaseClient.auth.signInWithPassword=()=>assert.fail('must not submit password again');
+  ctx.loadCloudState=async()=>true;
+  load('initializeAuth',ctx);
+  await ctx.initializeAuth();
+  assert.equal(ctx.state.sessionEmployeeId,'employee-id');
+  assert.equal(ctx.hasPendingSession,false);
+  assert.equal(button.disabled,false);
+});
+
+test('journal retry cannot bypass a missing or revoked profile',async()=>{
+  const {ctx,button}=fixture({missing:true,profileError:{code:'PGRST116'}});
+  const querySelector=ctx.document.querySelector;
+  ctx.document.querySelector=s=>s.startsWith('#loginForm ')?button:querySelector(s);
+  ctx.hasPendingSession=true;
+  ctx.supabaseClient.auth.getSession=async()=>({data:{session:{user:{id:'auth-id'}}}});
+  ctx.loadCloudState=()=>assert.fail('must not fetch context without a profile');
+  load('initializeAuth',ctx);
+  await ctx.initializeAuth();
+  assert.equal(ctx.state.sessionEmployeeId,undefined);
+  assert.equal(ctx.hasPendingSession,false);
+});
+
+test('retry control is visible only for a failed load with a pending session',()=>{
+  const resume={hidden:true},status={dataset:{}};
+  const ctx=vm.createContext({hasPendingSession:false,document:{querySelector:s=>s==='#resumeLogin'?resume:status}});
+  load('setLoginStatus',ctx);
+  ctx.setLoginStatus('error','error');assert.equal(resume.hidden,true);
+  ctx.hasPendingSession=true;
+  ctx.setLoginStatus('error','error');assert.equal(resume.hidden,false);
+  ctx.setLoginStatus('loading','info');assert.equal(resume.hidden,true);
 });

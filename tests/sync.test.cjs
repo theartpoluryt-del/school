@@ -2,6 +2,36 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs'),vm=require('node:vm');
 const SchoolSync=require('../sync-model.js');
+
+const occurrenceRow=(id,extra={})=>({id,employeeId:'t',scheduleId:'s',date:'2026-10-23',grade:'',...extra});
+test('same generated occurrence adopts server UUID instead of retrying an insert forever',()=>{
+ const base={records:[]},local={records:[occurrenceRow('local')]},remote={records:[occurrenceRow('server')]};
+ const merged=SchoolSync.payload(base,local,remote);
+ assert.deepEqual(merged.records,remote.records);
+ assert.deepEqual(SchoolSync.changes(remote,merged),[]);
+ assert.equal(local.records[0].id,'local');assert.equal(base.records.length,0);
+});
+test('occurrence reconciliation retains independent fields and asks before replacing marks',()=>{
+ const local={records:[occurrenceRow('local',{topic:'Local theme'})]},remote={records:[occurrenceRow('server',{grade:'5',quarterGrades:{p:'4'}})]};
+ const conflicts=[];
+ const merged=SchoolSync.payload({records:[]},local,remote,c=>{conflicts.push(c);return c.remote;});
+ assert.equal(conflicts.length,1);assert.equal(conflicts[0].path,'/records/server/grade');
+ assert.equal(merged.records[0].topic,'Local theme');assert.equal(merged.records[0].grade,'5');
+ assert.deepEqual(merged.records[0].quarterGrades,{p:'4'});
+ assert.equal(SchoolSync.changes(remote,merged)[0].before.id,'server');
+});
+test('occurrence reconciliation repairs duplicate left by an earlier failed rebase',()=>{
+ const server=occurrenceRow('server',{grade:'5'}),remote={records:[server]};
+ const merged=SchoolSync.payload(remote,{records:[server,occurrenceRow('local',{topic:'Theme'})]},remote,c=>c.remote);
+ assert.equal(merged.records.length,1);assert.equal(merged.records[0].id,'server');
+ assert.equal(merged.records[0].grade,'5');assert.equal(merged.records[0].topic,'Theme');
+});
+test('occurrence matching never joins history, other teachers, or different dates',()=>{
+ for(const extra of [{scheduleSuperseded:true},{employeeId:'other'},{date:'2026-10-24'}]){
+  const merged=SchoolSync.payload({records:[]},{records:[occurrenceRow('local',extra)]},{records:[occurrenceRow('server')]});
+  assert.equal(merged.records.length,2);
+ }
+});
 test('concurrent teachers and different fields merge without lost edits',()=>{
   const b={records:[{id:'1',grade:'',type:'Специальность'},{id:'2',grade:''}]};
   const l=structuredClone(b),r=structuredClone(b);
@@ -66,6 +96,33 @@ function fixture(rpc) {
   }
   return c;
 }
+
+test('atomic save rebases a generated duplicate once and updates the canonical lesson',async()=>{
+  let saves=0,loads=0;
+  const server=occurrenceRow('server');
+  const c=fixture(async(name,args)=>{
+    if(name==='get_school_context') {loads++;return {data:{updated_at:'v2',payload:{records:[server]}}};}
+    saves++;
+    if(saves===1)return {error:{code:'PT409',message:'Lesson occurrence already exists'}};
+    assert.equal(args.changes.length,1);assert.equal(args.changes[0].id,'server');
+    assert.equal(args.changes[0].before.id,'server');assert.equal(args.changes[0].after.topic,'New');
+    return {data:{acknowledged_request_id:args.request_id,updated_at:'v3',payload:{records:[args.changes[0].after]}}};
+  });
+  c.cloudPatchEnabled=true;c.state.records=[occurrenceRow('local',{topic:'New'})];
+  assert.equal(await c.flushCloudSave(),true);assert.equal(saves,2);assert.equal(loads,1);
+  assert.equal(c.cloudConflict,null);assert.equal(c.cloudDirty,false);
+  assert.equal(c.state.records[0].id,'server');assert.equal(c.state.records[0].topic,'New');
+});
+
+test('atomic save finishes after a duplicate rebase with identical generated values',async()=>{
+  let saves=0;
+  const c=fixture(async name=>name==='get_school_context'?
+    {data:{updated_at:'v2',payload:{records:[occurrenceRow('server')]}}}:
+    (++saves,{error:{code:'PT409',message:'Lesson occurrence already exists'}}));
+  c.cloudPatchEnabled=true;c.state.records=[occurrenceRow('local')];
+  assert.equal(await c.flushCloudSave(),true);assert.equal(saves,1);
+  assert.equal(c.cloudDirty,false);assert.equal(c.state.records.length,1);assert.equal(c.state.records[0].id,'server');
+});
 test('failed save remains dirty and prevents logout',async()=>{
   const c=fixture(async()=>({error:{code:'503',message:'offline'}}));
   await c.logout();assert.equal(c.signedOut,undefined);assert.equal(c.cloudDirty,true);assert.equal(c.kind,'error');

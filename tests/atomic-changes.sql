@@ -48,7 +48,7 @@ begin
    raise exception 'Existing journal changed';end if;
  if has_function_privilege('anon','public.save_school_changes(jsonb,uuid)','execute')
    or has_table_privilege('authenticated','school_sync.receipts','select')
-   or case when to_regnamespace('school_backup') is not null then has_schema_privilege('authenticated','school_backup','usage') else false end then raise exception 'Private data exposed';end if;
+   or (case when to_regnamespace('school_backup') is not null then has_schema_privilege('authenticated','school_backup','usage') else false end) then raise exception 'Private data exposed';end if;
 end;
 $test$;
 set local role authenticated;

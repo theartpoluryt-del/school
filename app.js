@@ -21,6 +21,8 @@ let cloudRevision = 0;
 let profileLoadError = null;
 let currentProfile = null;
 let authBusy = false;
+// UI hint only. Access still requires the server profile AND authorized context.
+let hasPendingSession = false;
 let modalReturnFocus = null;
 
 const weekdays = {
@@ -110,6 +112,7 @@ const titles = {
 tabs.forEach((tab) => tab.addEventListener("click", () => switchTab(tab.dataset.tab)));
 document.querySelector("#loginForm").addEventListener("submit", login);
 document.querySelector('#recoverLogin').addEventListener('click', recoverLogin);
+document.querySelector('#resumeLogin').addEventListener('click', () => { if (!authBusy) void initializeAuth(); });
 document.querySelector("#toggleLoginPassword").addEventListener("click", toggleLoginPassword);
 document.querySelector("#modalClose").addEventListener("click", closeModal);
 document.querySelector("#modalOverlay").addEventListener("click", (event) => {
@@ -1001,6 +1004,7 @@ async function login(event) {
   authBusy = true;
   let loginStage = 'auth';
   try {
+  hasPendingSession = false;
   setLoginStatus("Проверяем данные…", "info");
 
   if (!supabaseClient) {
@@ -1020,14 +1024,19 @@ async function login(event) {
     return;
   }
 
-  setLoginStatus('Загружаем профиль…', 'info');
+  hasPendingSession = true;
+  setLoginStatus('Вход подтверждён. Загружаем профиль…', 'info');
   loginStage = 'profile';
   currentProfile = await loadCurrentProfile(authData.user.id);
   if (!currentProfile || normalizeEmployeeUsername(currentProfile.username) !== username) {
-    await cloudRequest(supabaseClient.auth.signOut({ scope: "local" }), 5000).catch(() => {});
+    // A transient profile outage must not destroy an already accepted session.
+    if (!profileLoadError || profileLoadError.code === 'PGRST116') {
+      hasPendingSession = false;
+      await cloudRequest(supabaseClient.auth.signOut({ scope: "local" }), 5000).catch(() => {});
+    }
     currentProfile = null;
     setLoginStatus(profileLoadError && profileLoadError.code !== "PGRST116"
-      ? "Не удалось загрузить профиль: сервер временно недоступен. Повторите вход чуть позже. Код: P-20261009."
+      ? "Вход подтверждён, но сервер временно недоступен при загрузке профиля. Нажмите «Загрузить журнал» — вводить пароль повторно не нужно. Код: P-20261022."
       : "Профиль сотрудника не настроен. Обратитесь к администратору.", "error");
     submitButton.disabled = false;
     return;
@@ -1036,13 +1045,14 @@ async function login(event) {
   loginStage = 'data';
   if (!await loadCloudState()) {
     currentProfile = null;
-    setLoginStatus("Не удалось загрузить школьную базу. Сервер временно недоступен; повторите вход чуть позже. Код: D-20261009.", "error");
+    setLoginStatus("Вход подтверждён. Не удалось загрузить школьную базу. Нажмите «Загрузить журнал» — вводить пароль повторно не нужно. Код: D-20261022.", "error");
     submitButton.disabled = false;
     return;
   }
 
   const employee = state.employees.find((item) => item.username === currentProfile.username);
   if (!employee) {
+    hasPendingSession = false;
     await cloudRequest(supabaseClient.auth.signOut({ scope: 'local' }), 5000).catch(() => {});
     currentProfile = null;
     setLoginStatus("Профиль сотрудника не связан со школьной базой.", "error");
@@ -1054,6 +1064,7 @@ async function login(event) {
   state.sessionEmployeeId = employee.id;
   state.activeEmployeeId = employee.id;
   event.target.reset();
+  hasPendingSession = false;
   setLoginPasswordVisibility(false);
   setLoginStatus("", "");
   submitButton.disabled = false;
@@ -1069,7 +1080,7 @@ async function login(event) {
 }
 
 function recoverLogin() {
-  if (currentUser() || cloudDirty) return;
+  if (authBusy || currentUser() || cloudDirty) return;
   // Only this project's saved sign-in is cleared; no journals or other sites.
   SchoolAuth.clearSession(localStorage, supabaseConfig.url);
   SchoolAuth.clearSession(sessionStorage, supabaseConfig.url);
@@ -1084,6 +1095,7 @@ async function logout() {
   state = createDemoData();
   currentProfile = null;
   cloudReady = false;
+  hasPendingSession = false;
   cloudStateId = "";
   cloudStateVersion = "";
   cloudRawBaseline=null;cloudPendingPatch=null;cloudConflict=null;cloudPatchEnabled=false;
@@ -1112,9 +1124,12 @@ function setLoginStatus(message, kind) {
   const status = document.querySelector("#loginStatus");
   status.textContent = message;
   status.dataset.kind = kind;
+  const resume = document.querySelector('#resumeLogin');
+  if (resume) resume.hidden = !(hasPendingSession && kind === 'error');
 }
 
 async function initializeAuth() {
+  if (authBusy) return;
   render();
   if (!supabaseClient) {
     setLoginStatus("Подключение к серверу не настроено.", "error");
@@ -1131,23 +1146,26 @@ async function initializeAuth() {
   const { data, error } = await cloudRequest(supabaseClient.auth.getSession(), 45000);
   if (error) throw error;
   const user = data.session?.user;
+  hasPendingSession = Boolean(user);
   if (!user) { setLoginStatus('', ''); return; }
   loginStage = 'profile';
   currentProfile = await loadCurrentProfile(user.id);
   if (!currentProfile) {
+    if (!profileLoadError || profileLoadError.code === 'PGRST116') hasPendingSession = false;
     setLoginStatus(profileLoadError && profileLoadError.code !== 'PGRST116'
-      ? SchoolAuth.stageMessage(profileLoadError, loginStage)
+      ? 'Вход сохранён, но не удалось загрузить профиль. Нажмите «Загрузить журнал» — вводить пароль повторно не нужно. Код: P-20261022.'
       : 'Профиль сотрудника не настроен. Обратитесь к администратору.', 'error');
     return;
   }
   loginStage = 'data';
   if (!await loadCloudState()) {
     currentProfile = null;
-    setLoginStatus('Не удалось загрузить журнал. Повторите вход; при повторной ошибке нажмите «Восстановить вход». Код: D-20261009.', 'error');
+    setLoginStatus('Вход сохранён. Не удалось загрузить журнал. Нажмите «Загрузить журнал» — вводить пароль повторно не нужно. Код: D-20261022.', 'error');
     return;
   }
   const employee = state.employees.find((item) => item.username === currentProfile.username);
   if (!employee) {
+    hasPendingSession = false;
     currentProfile = null;
     state = createDemoData();
     return;
@@ -1155,6 +1173,7 @@ async function initializeAuth() {
   employee.isAdmin = Boolean(currentProfile.is_admin);
   state.sessionEmployeeId = employee.id;
   state.activeEmployeeId = employee.id;
+  hasPendingSession = false;
   setLoginStatus('', '');
   render();
   void globalThis.SchoolPasswords?.offer();

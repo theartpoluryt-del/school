@@ -35,7 +35,31 @@
   function payload(base,local,remote,resolve) {
     const serverKeys=['teacherGroupsEnabled','absencesEnabled','absenceRows','substituteTeachers','kcScheduleStudents','kcScheduleEmployeeIds'];
     const clean=x=>{const copy=structuredClone(x); for(const key of ['sessionEmployeeId','activeEmployeeId',...serverKeys]) delete copy[key]; return copy;};
-    return {...merge(clean(base),clean(local),clean(remote),'',resolve), sessionEmployeeId:local.sessionEmployeeId,
+    const b=clean(base),l=clean(local),r=clean(remote);
+    // Two sessions may generate the same dated lesson with different UUIDs.
+    // Match only NEW local rows to an unambiguous server occurrence. Do not
+    // delete history or pick one set of grades silently: differing fields use
+    // the normal explicit conflict resolver.
+    const occurrence=row=>row && !row.scheduleSuperseded && row.employeeId && row.scheduleId && row.date
+      ? JSON.stringify([row.employeeId,row.scheduleId,row.date]):null;
+    const byOccurrence=new Map();
+    for(const row of r.records||[]) {
+      const key=occurrence(row);if(!key) continue;
+      byOccurrence.set(key,byOccurrence.has(key)?null:row);
+    }
+    const originalIds=new Set((b.records||[]).map(row=>row.id));
+    for(const row of [...(l.records||[])]) {
+      if(originalIds.has(row.id)) continue;
+      const server=byOccurrence.get(occurrence(row));
+      if(!server || server.id===row.id) continue;
+      const canonical={...row,id:server.id}, seed={id:server.id};
+      const existing=l.records.find(item=>item.id===server.id);
+      const combined=existing ? merge(seed,canonical,existing,`/records/${server.id}`,resolve) : canonical;
+      l.records=l.records.filter(item=>item.id!==row.id && item.id!==server.id);
+      l.records.push(combined);
+      if(!(b.records||[]).some(item=>item.id===server.id)) (b.records??=[]).push(seed);
+    }
+    return {...merge(b,l,r,'',resolve), sessionEmployeeId:local.sessionEmployeeId,
       activeEmployeeId:local.activeEmployeeId,...Object.fromEntries(serverKeys.map(key=>[key,remote[key]]))};
   }
   // Apply only actual user edits to the raw server row. Display migrations/defaults
