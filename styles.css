@@ -1792,7 +1792,7 @@ th {
 .paid-cell { display: flex; align-items: center; justify-content: center; gap: 5px; min-width: 66px; }
 .paid-grade { width: 44px; min-height: 30px; padding: 3px; }
 .paid-date { border: 0; background: transparent; color: #176d78; padding: 5px; text-decoration: underline; }
-.paid-print-value { display: none; }
+.paid-print-value, #paidPrintAll { display: none; }
 .paid-staff-option { display: flex; align-items: center; gap: 8px; font-weight: 400; }
 #paidCourseForm { display: grid; gap: 12px; }
 #paidCourseForm fieldset { max-height: 200px; overflow: auto; border: 1px solid #d4dce3; }
@@ -1867,6 +1867,12 @@ th {
   .journal-edit-column { display: none; }
   .journal-topic-text { min-width: 0; }
   .journal-monthly-section th:first-child { min-width: 0; }
+  #paidView #paidMatrix { display: none !important; }
+  #paidView #paidHeading, #paidView #paidTotal { display: none; }
+  #paidView #paidPrintAll { display: block; }
+  .paid-print-course { margin-bottom: 8mm; }
+  .paid-print-course h3 { break-after: avoid; }
+  .paid-print-course tr { break-inside: avoid; }
   #paidView .paid-controls, #paidView .paid-help, #paidStatus,
   #paidView input, #paidView select { display: none !important; }
   #paidView .paid-print-value { display: inline; }

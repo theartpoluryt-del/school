@@ -28,8 +28,22 @@
       el('paidPrint').disabled = !loaded;
     }
   }
+  function tableHtml(chosen, rows) {
+    const people = PaidModel.roster(chosen, rows);
+    return `<table class="paid-table"><thead><tr><th>Ученик</th>${rows.map(l=>`<th>${escapeHtml(l.lesson_date.slice(8)+'.'+l.lesson_date.slice(5,7))}</th>`).join('')}<th>Итого часов</th></tr></thead><tbody>${people.map(p=>`<tr><th>${escapeHtml(p.name)}</th>${rows.map(l=>`<td>${!l.students.some(s=>s.id===p.id)?'—':`${l.present_student_ids.includes(p.id)?'✓':'—'}${l.grades[p.id]?' / '+escapeHtml(l.grades[p.id]):''}`}</td>`).join('')}<td>${formatNumber(PaidModel.workedHours(rows.filter(l=>l.students.some(s=>s.id===p.id))))}</td></tr>`).join('')}</tbody><tfoot><tr><th>Проведено</th>${rows.map(l=>`<td>${l.completed?'✓':'—'}</td>`).join('')}<td></td></tr><tr><th>Часы</th>${rows.map(l=>`<td>${formatNumber(PaidModel.roundHours(l.hours))}</td>`).join('')}<td>${formatNumber(PaidModel.workedHours(rows))}</td></tr></tfoot></table>`;
+  }
+  function drawPrint() {
+    let area = el('paidPrintAll');
+    if (!area) { area = document.createElement('div'); area.id='paidPrintAll'; el('paidMatrix').after(area); }
+    area.innerHTML = `<h2>Платные услуги · ${escapeHtml(state.employees.find(e=>e.id===state.activeEmployeeId)?.name||'')} · ${escapeHtml(el('paidMonth').value)}</h2>` + courses.filter(c=>c.starts_on.slice(0,7)<=el('paidMonth').value || lessons.some(l=>l.course_id===c.id&&!l.deleted)).map(c=>{
+      const rows=lessons.filter(l=>l.course_id===c.id&&!l.deleted).sort((a,b)=>a.lesson_date.localeCompare(b.lesson_date));
+      if(c.archived&&!rows.length) return '';
+      return `<section class="paid-print-course"><h3>${escapeHtml(c.name)}</h3>${rows.length?tableHtml(c,rows):`<p>${c.students.map(s=>escapeHtml(s.name)).join(', ')} — занятий в этом месяце нет.</p>`}</section>`;
+    }).join('') + `<p>Отработано за месяц: ${formatNumber(PaidModel.workedHours(lessons))} ч.</p>`;
+  }
   function draw() {
     const chosen = course();
+    drawPrint();
     const rows = selectedLessons();
     el('paidEditCourse').classList.toggle('is-hidden', !isAdmin());
     el('paidAddCourse').classList.toggle('is-hidden', !isAdmin());
@@ -176,7 +190,8 @@
   el('paidAddLesson').addEventListener('click',()=>lessonDialog());
   el('paidAddCourse').addEventListener('click',()=>courseDialog(true));
   el('paidEditCourse').addEventListener('click',()=>courseDialog(false));
-  el('paidPrint').addEventListener('click',()=>window.print());
+  el('paidPrint').textContent='Печать всех платников';
+  el('paidPrint').addEventListener('click',()=>{ if(loaded&&!busy) {drawPrint();window.print();} });
   el('paidMatrix').addEventListener('click',event=>{
     const button=event.target.closest('[data-edit]'); if (button) lessonDialog(button.dataset.edit);
   });

@@ -5,7 +5,7 @@
   function newLesson(course, employeeId, date, hours) {
     return {course_id: course.id, employee_id: employeeId, lesson_date: date,
       hours: roundHours(hours), completed: false, present_student_ids: [], grades: {},
-      students: course.students.map(s => ({id:s.id, name:s.name}))};
+      students: course.students.filter(s=>(!s.starts_on||s.starts_on<=date)&&(!s.ends_on||s.ends_on>=date)).map(s => ({id:s.id, name:s.name}))};
   }
   function workedHours(lessons) {
     return lessons.filter(l => l.completed && !l.deleted).reduce((total,l) => total + roundHours(l.hours), 0);

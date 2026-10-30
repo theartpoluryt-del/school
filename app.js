@@ -1424,9 +1424,11 @@ function refreshModalCourses(form) {
   form.elements.enrollmentId.required = courses.length > 0;
   const participant = participantById(row.studentId);
   const collective = !!SchoolModel.kcCollective(row.studentId);
+  const ensemble = row.type === 'Коллективное музицирование' && participant?.kind !== 'group';
   form.elements.className.readOnly = !collective;
   form.elements.className.maxLength = 80;
-  form.elements.enrollmentId.disabled = collective;
+  form.elements.enrollmentId.disabled = collective || ensemble;
+  if(ensemble) form.elements.enrollmentId.required=false;
   if (form.dataset.durationParticipant !== row.studentId) {
     if (collective) form.elements.className.value = '';
     form.dataset.durationParticipant = row.studentId;
@@ -1445,14 +1447,14 @@ function refreshModalCourses(form) {
   form.querySelector('[data-modal-duration-note]').textContent = participant?.choirLevel
     ? `${participant.defaultLessonMinutes} минут; ${participant.defaultPedHours} ч. нагрузки. Два занятия в неделю: добавьте каждое в нужный день. Минуты и нагрузка хранятся отдельно.`
     : 'Укажите часы в Пед. или Кц: 1 час = 40 минут. Окончание рассчитается автоматически.';
-  form.elements.enrollmentId.closest('label').classList.toggle('is-hidden', collective || participant?.kind === 'group');
+  form.elements.enrollmentId.closest('label').classList.toggle('is-hidden', collective || ensemble || participant?.kind === 'group');
   form.elements.type.innerHTML = collective
     ? '<option value="КЦ" selected>Концертмейстер</option>'
     : lessonTypeOptions(row.type);
   const previousMembers = form.querySelector('[data-modal-members]');
-  const selectedMembers = previousMembers?.dataset.groupId === row.studentId ? checkedValues(form, 'lessonMemberIds') : participant?.studentIds || [];
+  const selectedMembers = previousMembers?.dataset.groupId === row.studentId ? checkedValues(form, 'lessonMemberIds') : participant?.studentIds || (ensemble ? [row.studentId] : []);
   previousMembers?.remove();
-  if (participant?.kind === 'group') {
+  if (participant?.kind === 'group' || ensemble) {
     form.elements.enrollmentId.closest('label').insertAdjacentHTML('afterend', `<fieldset class="compact-fieldset" data-modal-members data-group-id="${escapeAttr(row.studentId)}"><legend>Состав занятия</legend><p class="muted-note">Выберите учеников, которые занимаются в это время.</p>${lessonMemberCheckboxes(participant, selectedMembers)}</fieldset>`);
   }
   applyModalCourse(form);
@@ -1500,7 +1502,7 @@ function journalRosterLabel(roster) {
 
 function openLessonMembers(id) {
   const row = state.schedule.find(r => r.id === id && r.employeeId === state.activeEmployeeId);
-  const group = row && state.groups.find(g => g.id === row.studentId);
+  const group = row && (state.groups.find(g => g.id === row.studentId) || (row.type==='Коллективное музицирование' ? {name:row.type,studentIds:[row.studentId]} : null));
   if (!group) return;
   openModal(`Состав занятия: ${escapeHtml(group.name)}`, `<form class="modal-form" data-modal-form="lessonMembers" data-row-id="${escapeAttr(id)}">
     <p class="muted-note">Выберите учеников именно на этот день и время. Этот состав автоматически используется в журнале и печати для занятий данной версии расписания.</p>
@@ -1509,13 +1511,23 @@ function openLessonMembers(id) {
 
 function saveLessonMembers(form) {
   const row = state.schedule.find(r => r.id === form.dataset.rowId && r.employeeId === state.activeEmployeeId);
-  const group = row && state.groups.find(g => g.id === row.studentId);
+  let group = row && state.groups.find(g => g.id === row.studentId);
+  const converting=row?.type==='Коллективное музицирование'&&!group;
+  if(converting) group={studentIds:[row.studentId]};
   if (!group) return;
   const allowed = new Set(lessonMemberCandidates(group).map(s => s.id));
   const ids = checkedValues(form, 'lessonMemberIds').filter(id => allowed.has(id));
   if (!ids.length) { alert('Выберите хотя бы одного ученика.'); return; }
+  if(converting) {
+    if(!canCreateTeachingGroup()||!validateTeachingGroupSelection(ids)) return;
+    group={id:createId(),externalId:nextGroupExternalId(),name:'Коллективное музицирование',className:'группа',
+      educationForm:row.educationForm||'ДПП',studentIds:ids,ownerEmployeeId:row.employeeId,assignedEmployeeIds:[row.employeeId]};
+    state.groups.push(group); row.studentId=group.id;row.className='группа';
+    for(const field of ['enrollmentId','instrument','program','termYears']) delete row[field];
+  }
   row.participantIds = ids;
   row.participantKind = 'group';
+  row.participantNames=Object.fromEntries(ids.map(id=>[id,studentName(id)]));
   refreshGeneratedJournalForScheduleChange(row);
   closeModal();
   persistAndRender();
@@ -1580,6 +1592,10 @@ function clearLegacyAttendance(record) {
 
 function applyModalCourse(form) {
   if (SchoolModel.kcCollective(form.elements.studentId.value)) return;
+  if (form.elements.type.value === 'Коллективное музицирование' && participantById(form.elements.studentId.value)?.kind !== 'group') {
+    form.elements.className.value='группа';
+    return;
+  }
   const courses = courseOptionsFor(form.elements.studentId.value, state.activeEmployeeId, form.elements.type.value);
   const course = courses.find(e => e.id === form.elements.enrollmentId.value);
   form.elements.className.value = course?.className || (courses.length ? '' : participantById(form.elements.studentId.value)?.className || '');
@@ -2097,7 +2113,24 @@ function addScheduleFromModal(form) {
     room: digitsOnly(form.elements.room.value)
   };
   if (!scheduleParticipants(row.type).some(p => p.id === participant.id)) { alert('Ученик недоступен для выбранного вида занятия.'); return; }
-  const courses = courseOptionsFor(participant.id, row.employeeId, row.type);
+  if (row.type === 'Коллективное музицирование' && participant.kind !== 'group') {
+    if (!canCreateTeachingGroup()) return;
+    const ids=checkedValues(form,'lessonMemberIds');
+    if (!validateTeachingGroupSelection(ids)) return;
+    let group=state.groups.find(g=>!g.isArchived && g.name==='Коллективное музицирование' &&
+      g.assignedEmployeeIds?.length===1 && g.assignedEmployeeIds[0]===row.employeeId &&
+      g.studentIds.length===ids.length && ids.every(id=>g.studentIds.includes(id)));
+    if (!group) {
+      group={id:createId(),externalId:nextGroupExternalId(),name:'Коллективное музицирование',
+        className:'группа',educationForm:participant.educationForm||'ДПП',studentIds:ids,
+        ownerEmployeeId:row.employeeId,assignedEmployeeIds:[row.employeeId]};
+      state.groups.push(group);
+    }
+    row.studentId=group.id; row.participantKind='group'; row.participantIds=[...ids];
+    row.className=group.className; row.educationForm=group.educationForm;
+    row.participantNames=Object.fromEntries(ids.map(id=>[id,studentName(id)]));
+  }
+  const courses = courseOptionsFor(row.studentId, row.employeeId, row.type);
   const course = courses.find(e => e.id === form.elements.enrollmentId.value);
   if (courses.length && !course) { form.elements.enrollmentId.reportValidity(); return; }
   SchoolModel.applyCourse(row, course);
@@ -2638,7 +2671,7 @@ function renderScheduleRow(row) {
         </span>
         <button class="lesson-duration-button" type="button" data-action="lessonDuration:${escapeAttr(row.id)}">${row.academicHours != null ? `${formatNumber(row.lessonMinutes)} мин · отдельно от нагрузки` : 'Длительность'}</button>
       </td>
-      <td class="participant-cell" data-label="Ученик / группа"><strong>${escapeHtml(participant?.name || "Не найдено")}</strong>${participant?.kind === 'group' ? membersControl : simple ? '' : courseSelect}</td>
+      <td class="participant-cell" data-label="Ученик / группа"><strong>${escapeHtml(participant?.name || "Не найдено")}</strong>${participant?.kind === 'group' ? membersControl : row.type==='Коллективное музицирование' ? `<button type="button" class="mini-button" data-action="lessonMembers:${escapeAttr(row.id)}">Выбрать учеников</button>` : simple ? '' : courseSelect}</td>
       <td class="class-cell" data-label="Класс">${collective ? `<input type="text" maxlength="80" aria-label="Класс коллектива" value="${escapeAttr(row.className || '')}" data-schedule-id="${escapeAttr(row.id)}" data-schedule-field="className" />` : escapeHtml(row.className ? journalClassLabel(row) : (courseOptionsFor(row.studentId, row.employeeId).length ? 'Выберите предмет' : compactJournalClass(participant?.className, participant?.termYears)))}</td>
       <td class="schedule-type-cell" data-label="Предмет"><select class="type-input" aria-label="Предмет" data-schedule-id="${row.id}" data-schedule-field="type">${collective ? '<option value="КЦ" selected>Концертмейстер</option>' : lessonTypeOptions(row.type, row.kcKind || 'legacy')}</select>${simple ? courseSelect : ''}</td>
       <td class="schedule-ped-cell" data-label="Пед."><input class="hours-input" type="text" inputmode="decimal" aria-label="Педагогические часы" value="${escapeAttr(SchoolModel.roundHours(row.pedHours))}" data-schedule-id="${escapeAttr(row.id)}" data-schedule-field="pedHours" data-hour-field /></td>
