@@ -11,6 +11,7 @@ function load(name,ctx) {
 function fixture(isAdmin=true) {
   const controls={};
   const ctx=vm.createContext({
+    SchoolModel:require('../school-model.js'),todayISO:()=> '2026-11-20',
     state:{sessionEmployeeId:'admin',activeEmployeeId:'teacher',employees:[{id:'admin',name:'Administrator',position:'Администратор',isAdmin},{id:'teacher',name:'Teacher',position:'Преподаватель'}],students:[
       {id:'a',assignedEmployeeIds:['teacher'],enrollments:[{id:'flute',className:'6',employeeIds:['teacher']}]},
       {id:'b',assignedEmployeeIds:[]},{id:'archived',isArchived:true,assignedEmployeeIds:[]}

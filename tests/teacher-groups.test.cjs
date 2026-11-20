@@ -4,7 +4,7 @@ const fs=require('node:fs');
 const vm=require('node:vm');
 const source=fs.readFileSync(require.resolve('../app.js'),'utf8');
 function fixture(admin=false) {
-  const c=vm.createContext({state:{teacherGroupsEnabled:true,sessionEmployeeId:'t',activeEmployeeId:'other',
+  const c=vm.createContext({SchoolModel:require('../school-model.js'),todayISO:()=> '2026-11-20',state:{teacherGroupsEnabled:true,sessionEmployeeId:'t',activeEmployeeId:'other',
     students:[{id:'own',assignedEmployeeIds:['t']},{id:'other',assignedEmployeeIds:['other']}],groups:[],
     records:[{id:'grade',studentId:'g',grade:'5',educationForm:'ДПП',participantIds:['own']}]},
     isAdmin:()=>admin,currentUser:()=>({id:'t'}),selectedStudentIdsFromForm:()=>['own'],

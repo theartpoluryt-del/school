@@ -2,6 +2,16 @@ const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const model = require('../school-model.js');
 
+test('active pupil selection respects admission and exclusive withdrawal dates',()=>{
+  const pupil={enrolledOn:'2026-10-01',withdrawnOn:'2026-11-23'};
+  assert.equal(model.isStudentActive(pupil,'2026-09-30'),false);
+  assert.equal(model.isStudentActive(pupil,'2026-10-01'),true);
+  assert.equal(model.isStudentActive(pupil,'2026-11-22'),true);
+  assert.equal(model.isStudentActive(pupil,'2026-11-23'),false);
+  assert.equal(model.isStudentActive({},'2026-11-23'),true);
+  assert.equal(model.isStudentActive({isArchived:true},'2026-11-23'),false);
+});
+
 test('four 40-minute lessons with 20 children equal 4 lesson hours and 80 person-hours',()=>{
   const ids=Array.from({length:20},(_,i)=>`p${i}`);
   const lesson={time:'10:00-10:40',participantIds:ids,presentStudentIds:ids,pedHours:1,kcHours:1};
