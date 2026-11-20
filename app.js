@@ -1384,7 +1384,7 @@ function assignStudentsToSelf(form) {
   if (!isAdmin()) return;
   const employee = currentUser();
   const selected = new Set(selectedStudentIdsFromForm(form));
-  const students = state.students.filter(student => selected.has(student.id) && !student.isArchived);
+  const students = state.students.filter(student => selected.has(student.id) && SchoolModel.isStudentActive(student, todayISO()));
   if (!students.length) { alert("Выберите хотя бы одного ученика."); return; }
   students.forEach(student => {
     student.assignedEmployeeIds = uniqueByIdValues([...(student.assignedEmployeeIds || []), employee.id]);
@@ -1462,7 +1462,7 @@ function refreshModalCourses(form) {
 
 function lessonMemberCandidates(group) {
   const ids = new Set([...(group.studentIds || []), ...visibleStudents().map(s => s.id)]);
-  return state.students.filter(s => ids.has(s.id) && !s.isArchived && (!group.choirLevel || (group.candidateStudentIds || group.studentIds || []).includes(s.id))).sort((a,b) => compareStudents(a,b,'class',state.activeEmployeeId));
+  return state.students.filter(s => ids.has(s.id) && SchoolModel.isStudentActive(s, todayISO()) && (!group.choirLevel || (group.candidateStudentIds || group.studentIds || []).includes(s.id))).sort((a,b) => compareStudents(a,b,'class',state.activeEmployeeId));
 }
 
 function lessonMemberCheckboxes(group, selected, candidates = lessonMemberCandidates(group)) {
@@ -3323,7 +3323,7 @@ function renderPeople() {
   const employeeSearch = normalizeText(employeeSearchInput?.value || "");
   const teacherMatches = (ids) => !selectedTeacherId || (ids || []).includes(selectedTeacherId);
 
-  const studentSource = (isAdmin() ? state.students : visibleStudents()).filter((student) => !student.isArchived);
+  const studentSource = (isAdmin() ? state.students : visibleStudents()).filter((student) => SchoolModel.isStudentActive(student, todayISO()));
   const groupSource = isAdmin() ? state.groups.filter(g => !g.isArchived) : visibleGroups();
   const students = studentSource
     .filter((student) => teacherMatches(student.assignedEmployeeIds))
@@ -3402,7 +3402,7 @@ function renderPeople() {
 function instrumentOptions(selectedValue) {
   const instruments = uniqueTextValues([
     ...state.employees.filter(isTeachingEmployee).flatMap(employeeInstrumentNames),
-    ...state.students.filter((student) => !student.isArchived).flatMap(studentInstrumentNames)
+    ...state.students.filter((student) => SchoolModel.isStudentActive(student, todayISO())).flatMap(studentInstrumentNames)
   ]).sort((a, b) => a.localeCompare(b, "ru"));
   return `<option value="">\u0412\u0441\u0435 \u0438\u043d\u0441\u0442\u0440\u0443\u043c\u0435\u043d\u0442\u044b</option>` + instruments
     .map((instrument) => `<option value="${escapeAttr(instrument)}" ${instrument === selectedValue ? "selected" : ""}>${escapeHtml(instrument)}</option>`)
@@ -3597,9 +3597,9 @@ function visibleEmployees() {
 
 function visibleStudents() {
   if (isAdmin()) {
-    return state.students.filter((student) => !student.isArchived && (student.assignedEmployeeIds || []).includes(state.activeEmployeeId));
+    return state.students.filter((student) => SchoolModel.isStudentActive(student, todayISO()) && (student.assignedEmployeeIds || []).includes(state.activeEmployeeId));
   }
-  return state.students.filter((student) => !student.isArchived && (student.assignedEmployeeIds || []).includes(state.sessionEmployeeId));
+  return state.students.filter((student) => SchoolModel.isStudentActive(student, todayISO()) && (student.assignedEmployeeIds || []).includes(state.sessionEmployeeId));
 }
 
 function visibleGroups() {
@@ -3948,7 +3948,7 @@ function renderStudentPickerResults(picker) {
   }
 
   const matches = state.students
-    .filter((student) => !student.isArchived)
+    .filter((student) => SchoolModel.isStudentActive(student, todayISO()))
     .filter((student) => isAdmin() || (student.assignedEmployeeIds || []).includes(state.sessionEmployeeId))
     .filter((student) => normalizeText(student.name).includes(query))
     .sort((a, b) => compareStudents(a,b,'class',isAdmin() ? '' : state.sessionEmployeeId))

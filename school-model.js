@@ -1,5 +1,10 @@
 (function (root) {
   'use strict';
+  function isStudentActive(student, date) {
+    return !student.isArchived
+      && (!student.enrolledOn || student.enrolledOn <= date)
+      && (!student.withdrawnOn || student.withdrawnOn > date);
+  }
   function roundHours(value) {
     const hours = Number(String(value ?? 0).replace(',', '.'));
     return Number.isFinite(hours) ? Math.round(Math.max(0, hours) * 2) / 2 : 0;
@@ -83,7 +88,7 @@
     {id:'kc-choir-ho',name:'Хор ХО',kind:'kc-collective'}
   ];
   const kcCollective = id => kcCollectives.find(p => p.id === id);
-  const api = { isKcLesson, kcCollectives, kcCollective, roundHours, courses, courseLabel, courseChoices, applyCourse, endTime, subjectLabel, memberIds, lessonHours, personHours };
+  const api = { isStudentActive, isKcLesson, kcCollectives, kcCollective, roundHours, courses, courseLabel, courseChoices, applyCourse, endTime, subjectLabel, memberIds, lessonHours, personHours };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SchoolModel = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
