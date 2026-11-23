@@ -4,7 +4,7 @@
     if (error?.code === 'invalid_credentials') return 'Неверный логин или пароль.';
     if (error?.status === 429 || /rate_limit|too_many/i.test(error?.code || '')) return 'Слишком много попыток входа. Подождите несколько минут и повторите.';
     if (/refresh_token|session_not_found/.test(error?.code || '')) return 'Сессия входа истекла. Введите логин и пароль заново.';
-    if (error?.code === 'CLIENT_TIMEOUT' || /lock|timeout|abort/i.test(error?.name + ' ' + error?.message)) return 'Проверка входа заняла слишком много времени. Повторите вход. Если снова зависнет, нажмите «Восстановить вход».';
+    if (error?.code === 'CLIENT_TIMEOUT' || [408,504].includes(error?.status) || /lock|timeout|timed out|abort/i.test(error?.name + ' ' + error?.message)) return 'Проверка входа заняла слишком много времени. Убедитесь, что VPN выключен, и повторите попытку. Если снова зависнет, нажмите «Восстановить вход».';
     return 'Нет ответа от сервера входа. Проверьте соединение и повторите чуть позже. Это не означает, что пароль неверный.';
   }
   function isTemporary(error) {

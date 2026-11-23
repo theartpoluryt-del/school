@@ -125,13 +125,17 @@
       return await Promise.race([typeof builder.abortSignal==='function' ? builder.abortSignal(controller.signal) : builder,timeout]);
     } finally {clearTimeout(timer);}
   }
+  function isTimeout(error) {
+    return ['CLIENT_TIMEOUT','57014'].includes(error?.code) || [408,504].includes(error?.status)
+      || /timeout|timed out|57014/i.test(`${error?.name || ''} ${error?.message || ''}`);
+  }
   function errorMessage(error) {
     const message=error?.message || 'Неизвестная ошибка сервера.';
-    if (/statement timeout|57014/i.test(message)) return 'Сервер слишком долго обрабатывает запрос. Повторите сохранение через минуту.';
+    if (isTimeout(error)) return 'Превышено время ожидания ответа сервера. Убедитесь, что VPN выключен, и повторите попытку.';
     if (/JWT expired|invalid JWT|refresh token|session.*expired/i.test(message)) return 'Сессия входа истекла. Не закрывайте страницу с изменениями; обратитесь к администратору.';
     if (/failed to fetch|network|load failed/i.test(message)) return 'Нет ответа от сервера. Проверьте интернет и повторите сохранение.';
     return message;
   }
-  const api={merge,payload,changes,acknowledge,request,errorMessage};
+  const api={merge,payload,changes,acknowledge,request,isTimeout,errorMessage};
   if(typeof module!=='undefined' && module.exports) module.exports=api; else root.SchoolSync=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

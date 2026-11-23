@@ -591,7 +591,7 @@ async function invokeCredentialUpdate(currentUsername, newUsername, newPassword)
     } catch {
       // The generic function error is still useful when no JSON body is available.
     }
-    throw new Error(message);
+    throw Object.assign(new Error(message), {code:error.code,status:error.status});
   }
   if (!data?.ok) throw new Error(data?.error || "Не удалось обновить учётные данные.");
   return data;
@@ -760,7 +760,7 @@ async function saveCloudChanges() {
           render();
           continue;
         }
-        throw new Error(error.message || 'Сервер отклонил сохранение.');
+        throw error;
       }
       if (!data?.updated_at) throw new Error('Сервер не подтвердил сохранение. Повторите попытку.');
       cloudStateVersion = data.updated_at;
@@ -769,7 +769,7 @@ async function saveCloudChanges() {
       .from("school_state")
       .update({ payload: sent })
       .eq("id", cloudStateId));
-    if (error) throw new Error(error.message);
+    if (error) throw error;
     }
     cloudBaseline=sent;
     cloudDirty=cloudRevision!==revision;
@@ -862,7 +862,7 @@ async function saveAtomicChanges(deadline) {
       // A validation/permission rejection is definitive: let corrected input form
       // a new request. Network errors/timeouts retain the exact idempotent request.
       if (['22023','42501','23505','23503','23514'].includes(error.code)) cloudPendingPatch=null;
-      throw new Error(error.message || 'Сервер отклонил сохранение.');
+      throw error;
     }
     if(data?.acknowledged_request_id!==pending.id || (!data?.payload && !Array.isArray(data?.applied_changes)) || !data?.updated_at)
       throw new Error('Сервер не подтвердил сохранение. Повторите попытку.');

@@ -5,6 +5,7 @@
   const el = id => document.getElementById(id);
 
   function message(error) {
+    if (SchoolSync.isTimeout(error)) return SchoolSync.errorMessage(error) + ' При обрыве связи пароль мог уже измениться. Сохраните новый пароль и попробуйте его при следующем входе.';
     if (error?.code === 'same_password') return 'Новый пароль должен отличаться от прежнего.';
     if (error?.code === 'weak_password') return 'Пароль слишком простой. Используйте не менее 12 символов, буквы, цифры и знаки.';
     if (['reauthentication_needed', 'reauthentication_not_valid', 'session_not_found', 'refresh_token_not_found'].includes(error?.code)) {

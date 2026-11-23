@@ -14,7 +14,7 @@ function fixture({admin=false,authError=null,rpcError=null,claim=true}={}) {
   nodes.set('accountPasswordForm',form);
   const calls=[];
   const ctx={window:{},document:{getElementById:node,addEventListener(){}},currentProfile:{id:'own',username:'own-login'},
-    state:{employees:[{id:'other',name:'Other teacher',username:'other-login'}]},isAdmin:()=>admin,
+    SchoolSync:require('../sync-model.js'),state:{employees:[{id:'other',name:'Other teacher',username:'other-login'}]},isAdmin:()=>admin,
     escapeHtml:x=>x,escapeAttr:x=>x,createTemporaryPassword:()=> 'Random-Test-123456',cloudRequest:async p=>p,
     openModal:(title,body)=>{calls.push(['modal',title,body]);},closeModal:()=>{calls.push(['close']);},
     openCredentialResult:(...args)=>calls.push(['credentials',...args]),

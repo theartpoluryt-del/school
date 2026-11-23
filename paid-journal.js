@@ -12,6 +12,7 @@
     if (el('paidModalStatus')) el('paidModalStatus').textContent = message;
   };
   function message(error) {
+    if (SchoolSync.isTimeout(error)) return SchoolSync.errorMessage(error);
     if (error?.code === 'PT409' || error?.code === '40001') return 'Данные изменены в другой вкладке. Нажмите «Обновить» и повторите правку.';
     if (error?.code === '23505') return 'На эту дату занятие уже есть. Откройте его дату, чтобы изменить часы.';
     if (error?.code === '42501') return 'Нет доступа к этому занятию. Обновите страницу или обратитесь к администратору.';

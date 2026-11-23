@@ -24,7 +24,7 @@
     setSyncStatus('Сохраняем замещение…','pending');
     try {
       const {data,error}=await cloudRequest(supabaseClient.rpc('school_absence_action',{action:kind,args:{...args,expectedVersion:cloudStateVersion}}));
-      if(error) throw new Error(error.message);
+      if(error) throw error;
       const session=state.sessionEmployeeId,active=state.activeEmployeeId;
       const remote=migrateState(data.payload);
       state=SchoolSync.payload(cloudBaseline,state,remote);
@@ -44,8 +44,9 @@
         ,'Set valid lesson times before absence':'Сначала укажите корректное время всех занятий за период.'
         ,'Resolve ambiguous course before absence':'Сначала выберите предмет и инструмент у занятий с неоднозначной привязкой.'
       };
-      setSyncStatus('Замещение не сохранено','error');
-      alert(labels[error.message] || 'Не удалось сохранить: '+error.message);return false;
+      const failure=labels[error.message] || SchoolSync.errorMessage(error);
+      setSyncStatus('Сохранение замещения не подтверждено. '+failure,'error');
+      alert(failure);return false;
     } finally {busy=false;document.body.classList.remove('absence-saving');if(cloudDirty)void flushCloudSave();}
   }
   function open() {
