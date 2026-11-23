@@ -2787,14 +2787,40 @@ th {
 
 /* Subtle motion around the working surface; journal cells stay still while editing. */
 .login-screen {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   background:
     radial-gradient(ellipse at 20% 22%, rgba(20,108,104,.085), transparent 48%),
     radial-gradient(ellipse at 85% 80%, rgba(184,131,44,.075), transparent 44%),
     var(--paper);
 }
 
+.login-screen::before, .login-screen::after {
+  content: '';
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: 50%;
+  width: max(650px, 68vw);
+  height: max(650px, 68vw);
+  translate: var(--ambient-x, 0px) var(--ambient-y, 0px);
+}
+.login-screen::before {
+  top: -35%;
+  left: -18%;
+  background: radial-gradient(circle, rgba(20,108,104,.16), rgba(85,155,143,.065) 37%, transparent 68%);
+}
+.login-screen::after {
+  right: -22%;
+  bottom: -55%;
+  background: radial-gradient(circle, rgba(196,151,68,.16), rgba(196,151,68,.045) 40%, transparent 68%);
+  translate: calc(var(--ambient-x, 0px) * -.7) calc(var(--ambient-y, 0px) * -.7);
+}
+
 .login-card {
   position: relative;
+  z-index: 1;
   border-color: rgba(20,108,104,.15);
   border-radius: 18px;
   box-shadow: 0 24px 64px rgba(13,79,75,.09), 0 3px 12px rgba(32,33,36,.035);
@@ -2901,12 +2927,26 @@ input:focus-visible, textarea:focus-visible, select:not(.grade-select):focus-vis
   to { opacity: 1; }
 }
 @keyframes status-spin { to { transform: rotate(360deg); } }
+@keyframes ambient-drift {
+  0%, 100% { transform: translate3d(-12px, -10px, 0) scale(1); }
+  50% { transform: translate3d(16px, 12px, 0) scale(1.04); }
+}
 @keyframes saved-enter {
   from { opacity: 0; transform: scale(.65); }
   to { opacity: 1; transform: scale(1); }
 }
 
 @media (prefers-reduced-motion: no-preference) {
+  .login-screen[data-ambient-motion="on"]::before,
+  .login-screen[data-ambient-motion="on"]::after {
+    transition: translate 750ms cubic-bezier(.2,.7,.2,1);
+    animation: ambient-drift 24s ease-in-out infinite;
+  }
+  .login-screen[data-ambient-motion="on"]::after {
+    animation-duration: 30s;
+    animation-delay: -12s;
+    animation-direction: reverse;
+  }
   .login-screen:not(.is-hidden) .login-card { animation: surface-enter 380ms cubic-bezier(.2,.7,.2,1); }
   .app-shell:not(.is-hidden) > .workspace { animation: workspace-enter 280ms ease-out; }
   .tab-view.active { animation: surface-enter 220ms cubic-bezier(.2,.7,.2,1); }
@@ -2923,4 +2963,5 @@ input:focus-visible, textarea:focus-visible, select:not(.grade-select):focus-vis
     transition: none !important;
     scroll-behavior: auto !important;
   }
+  .login-screen::before, .login-screen::after { translate: none; transform: none; }
 }

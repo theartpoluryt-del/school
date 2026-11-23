@@ -34,7 +34,7 @@ await copyFile(path.join(source,'vendor/supabase.js'),path.join(publicPath,'vend
 await copyFile(path.join(source,'vendor/LICENSE.supabase-js'),path.join(publicPath,'vendor/LICENSE.supabase-js'));
 const files = ['app.js','styles.css','school-model.js','assessment-model.js','sync-model.js',
   'auth-network.js','absence-journal.js','accompanist-journal.js','accompanist-model.js',
-  'paid-journal.js','paid-model.js','account-passwords.js'];
+  'paid-journal.js','paid-model.js','account-passwords.js','login-background.js'];
 for (const name of files) await copyFile(path.join(source,name),path.join(publicPath,name));
 await cp(path.join(source,'assets'),path.join(publicPath,'assets'),{recursive:true});
 let html = (await readFile(path.join(source,'index.html'),'utf8'))
