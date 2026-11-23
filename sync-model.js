@@ -91,6 +91,24 @@
       before:raw?.academicPlanVersion??null,after:local?.academicPlanVersion??null});
     return result;
   }
+  function acknowledge(raw, applied, expected) {
+    const out=structuredClone(raw), remaining=new Set(expected.map(x=>JSON.stringify([x.collection,x.id??null])));
+    for(const op of applied) {
+      const key=JSON.stringify([op.collection,op.id??null]);
+      if(!remaining.delete(key) || !Object.prototype.hasOwnProperty.call(op,'after')) throw new Error('Неполное подтверждение изменений. Повторите сохранение.');
+      if(op.collection==='academicPlanVersion') {
+        if(op.after===null) delete out.academicPlanVersion; else out.academicPlanVersion=structuredClone(op.after);
+      } else {
+        if(!Array.isArray(out[op.collection]) || (op.after!==null && op.after?.id!==op.id)) throw new Error('Некорректное подтверждение строки. Повторите сохранение.');
+        const rows=out[op.collection],index=rows.findIndex(x=>x.id===op.id);
+        if(op.after===null) { if(index>=0) rows.splice(index,1); }
+        else if(index>=0) rows[index]=structuredClone(op.after);
+        else rows.push(structuredClone(op.after));
+      }
+    }
+    if(remaining.size) throw new Error('Подтверждены не все изменения. Повторите сохранение.');
+    return out;
+  }
   async function request(builder, timeoutMs=20000) {
     const controller=new AbortController();
     let timer;
@@ -114,6 +132,6 @@
     if (/failed to fetch|network|load failed/i.test(message)) return 'Нет ответа от сервера. Проверьте интернет и повторите сохранение.';
     return message;
   }
-  const api={merge,payload,changes,request,errorMessage};
+  const api={merge,payload,changes,acknowledge,request,errorMessage};
   if(typeof module!=='undefined' && module.exports) module.exports=api; else root.SchoolSync=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

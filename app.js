@@ -841,7 +841,7 @@ async function saveAtomicChanges(deadline) {
       cloudPendingPatch={id:createId(),changes,sent};
     }
     const pending=cloudPendingPatch;
-    const {data,error}=await cloudRequest(supabaseClient.rpc('save_school_changes',{
+    const {data,error}=await cloudRequest(supabaseClient.rpc(supabaseConfig?.compactSaves ? 'save_school_changes_compact' : 'save_school_changes',{
       changes:pending.changes,request_id:pending.id
     }),Math.min(20000,deadline-Date.now()));
     if (error) {
@@ -864,18 +864,19 @@ async function saveAtomicChanges(deadline) {
       if (['22023','42501','23505','23503','23514'].includes(error.code)) cloudPendingPatch=null;
       throw new Error(error.message || 'Сервер отклонил сохранение.');
     }
-    if(data?.acknowledged_request_id!==pending.id || !data?.payload || !data?.updated_at)
+    if(data?.acknowledged_request_id!==pending.id || (!data?.payload && !Array.isArray(data?.applied_changes)) || !data?.updated_at)
       throw new Error('Сервер не подтвердил сохранение. Повторите попытку.');
-    const remote=migrateState(data.payload), conflicts=[];
+    const acknowledgedRaw=data.payload || SchoolSync.acknowledge(cloudRawBaseline,data.applied_changes,pending.changes);
+    const remote=migrateState(acknowledgedRaw), conflicts=[];
     const combined=SchoolSync.payload(pending.sent,state,remote,c=>{conflicts.push(c);return c.remote;});
     cloudPendingPatch=null;
     if(conflicts.length) {
       // The acknowledged request is saved. Keep edits made while it was in flight.
       cloudBaseline=pending.sent;
-      cloudConflict={remote,raw:data.payload,version:data.updated_at};
+      cloudConflict={remote,raw:acknowledgedRaw,version:data.updated_at};
       throw new Error('Сохранение подтверждено, но новые правки пересеклись с другим сеансом. Нажмите «Разобрать конфликт».');
     }
-    state=combined;cloudBaseline=structuredClone(remote);cloudRawBaseline=structuredClone(data.payload);
+    state=combined;cloudBaseline=structuredClone(remote);cloudRawBaseline=structuredClone(acknowledgedRaw);
     cloudStateVersion=data.updated_at;
     cloudDirty=SchoolSync.changes(cloudBaseline,cloudPayload(),cloudRawBaseline).length>0;
     renderCloudAcknowledgement();

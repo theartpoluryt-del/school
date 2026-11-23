@@ -85,7 +85,7 @@ function fixture(rpc) {
     cloudSaveTimer:null,cloudSavePromise:null,cloudSaveInFlight:false,cloudDirty:true,cloudRevision:1,secureCloudMode:true,
     cloudReady:true,cloudStateId:'s',cloudStateVersion:'v1',cloudBaseline:{records:[]},cloudRawBaseline:{records:[]},
     cloudPatchEnabled:false,cloudPendingPatch:null,cloudConflict:null,cloudAuthRequired:false,state:{records:[],sessionEmployeeId:'t'},createId:()=> 'request-'+Math.random(),
-    SchoolAuth:require('../auth-network.js'),openCloudSaveLogin(){c.loginRequested=true;},
+    supabaseConfig:{compactSaves:false},SchoolAuth:require('../auth-network.js'),openCloudSaveLogin(){c.loginRequested=true;},
     supabaseClient:{rpc,auth:{getSession:async()=>({data:{session:{access_token:'synthetic',user:{id:'auth-id'}}}}),signOut:async()=>{c.signedOut=true;}}},cloudPayload:()=>structuredClone(c.state),
     migrateState:x=>structuredClone(x),setSyncStatus:(message,kind)=>{c.message=message;c.kind=kind;},
     currentTimeLabel:()=> '12:00',render(){},renderCloudAcknowledgement(){},alert:m=>{c.alert=m;},createDemoData:()=>({}),
@@ -134,6 +134,32 @@ test('UI repaint failure after acknowledged write is not reported as unsaved',as
 test('retry with no remaining edits clears a stale error without a write',async()=>{
   let writes=0;const c=fixture(async()=>{writes++;});c.cloudDirty=false;c.kind='error';
   assert.equal(await c.flushCloudSave(),true);assert.equal(writes,0);assert.equal(c.kind,'saved');
+});
+
+test('compact acknowledgments apply only touched rows and reject incomplete receipts',()=>{
+  const raw={records:[{id:'r',grade:'4',unknown:7},{id:'other',grade:'5'}],academicPlanVersion:1};
+  const expected=[{collection:'records',id:'r'},{collection:'records',id:'new'},{collection:'academicPlanVersion'}];
+  const applied=[{collection:'records',id:'r',after:null},{collection:'records',id:'new',after:{id:'new',grade:'5'}},
+    {collection:'academicPlanVersion',id:null,after:2}];
+  const out=SchoolSync.acknowledge(raw,applied,expected);
+  assert.deepEqual(out,{records:[{id:'other',grade:'5'},{id:'new',grade:'5'}],academicPlanVersion:2});
+  assert.equal(raw.records[0].unknown,7);
+  assert.throws(()=>SchoolSync.acknowledge(raw,applied.slice(0,2),expected));
+  assert.throws(()=>SchoolSync.acknowledge(raw,[...applied,applied[0]],expected));
+  assert.throws(()=>SchoolSync.acknowledge(raw,[{collection:'records',id:'r',after:{id:'spoof'}}],[expected[0]]));
+});
+
+test('compact save keeps edits made in flight and preserves authoritative server fields',async()=>{
+  let calls=0;const c=fixture(async(name,args)=>{
+    assert.equal(name,'save_school_changes_compact');calls++;
+    if(calls===1)c.state.records[0].topic='New topic';
+    else {assert.equal(args.changes[0].before.serverField,7);assert.equal(args.changes[0].after.topic,'New topic');}
+    return {data:{acknowledged_request_id:args.request_id,updated_at:'v'+calls,applied_changes:
+      args.changes.map(op=>({collection:op.collection,id:op.id,after:{...op.after,serverField:7}}))}};
+  });
+  c.supabaseConfig.compactSaves=true;c.cloudPatchEnabled=true;c.state.records=[{id:'r',grade:'5',topic:''}];
+  assert.equal(await c.flushCloudSave(),true);assert.equal(calls,2);assert.equal(c.cloudDirty,false);
+  assert.equal(c.state.records[0].topic,'New topic');assert.equal(c.state.records[0].serverField,7);
 });
 
 test('atomic save rebases a generated duplicate once and updates the canonical lesson',async()=>{

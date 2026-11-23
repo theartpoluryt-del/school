@@ -41,7 +41,7 @@ let html = (await readFile(path.join(source,'index.html'),'utf8'))
   .replace('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0','/vendor/supabase.js');
 const key = env.match(/^ANON_KEY=(.+)$/m)[1];
 await writeFile(path.join(publicPath,'supabase-config.js'),
-  `window.SCHOOL_SUPABASE_CONFIG=${JSON.stringify({url:'https://'+domain,publishableKey:key})};\n`);
+  `window.SCHOOL_SUPABASE_CONFIG=${JSON.stringify({url:'https://'+domain,publishableKey:key,compactSaves:true})};\n`);
 // A browser may still cache files from GitHub Pages at this same domain.
 // Version every local JS/CSS URL by the deployed bytes, including the new config.
 for (const match of [...html.matchAll(/\b(?:src|href)="((?!https?:)[^"]+\.(?:js|css))(?:\?[^"]*)?"/g)]) {

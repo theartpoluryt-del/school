@@ -25,6 +25,11 @@ grant all on all sequences in schema public to service_role;
 grant execute on function public.get_school_context() to authenticated;
 grant execute on function public.save_school_context(jsonb,timestamptz) to authenticated;
 grant execute on function public.save_school_changes(jsonb,uuid) to authenticated;
+do $$ begin
+  if to_regprocedure('public.save_school_changes_compact(jsonb,uuid)') is not null then
+    grant execute on function public.save_school_changes_compact(jsonb,uuid) to authenticated;
+  end if;
+end $$;
 grant execute on function public.claim_password_change_prompt() to authenticated;
 grant execute on function public.school_absence_action(text,jsonb) to authenticated;
 grant execute on function public.get_paid_journal(text,date) to authenticated;
