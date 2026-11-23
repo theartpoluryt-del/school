@@ -63,7 +63,16 @@
     const key = `sb-${new URL(projectUrl).hostname.split('.')[0]}-auth-token`;
     for (const suffix of ['', '-code-verifier', '-user']) storage.removeItem(key + suffix);
   }
-  const api = {message, stageMessage, isTemporary, signIn, boundedFetch, clearSession};
+  async function requireSession(client, expectedUserId) {
+    const {data,error}=await client.auth.getSession();
+    if (error && !/refresh_token|session_not_found|session_expired/.test(error.code || '')) throw error;
+    const session=data?.session;
+    if (error || !expectedUserId || !session?.access_token || session.user?.id!==expectedUserId) {
+      throw Object.assign(new Error('Сеанс входа завершён. Войдите снова, чтобы сохранить оставшиеся изменения.'),{code:'AUTH_REQUIRED'});
+    }
+    return session;
+  }
+  const api = {message, stageMessage, isTemporary, signIn, boundedFetch, clearSession, requireSession};
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SchoolAuth = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

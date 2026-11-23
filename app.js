@@ -18,6 +18,7 @@ let cloudPendingPatch = null;
 let cloudConflict = null;
 let cloudSavePromise = null;
 let cloudRevision = 0;
+let cloudAuthRequired = false;
 let profileLoadError = null;
 let currentProfile = null;
 let authBusy = false;
@@ -220,6 +221,7 @@ document.addEventListener("submit", async (event) => {
   event.preventDefault();
 
   const type = form.dataset.modalForm;
+  if (type === 'resumeSave') { await resumeCloudSave(form); return; }
   if (type === "student") addStudentFromModal(form);
   if (type === "employee") await addEmployeeFromModal(form);
   if (type === "group") addGroupFromModal(form);
@@ -709,7 +711,10 @@ async function flushCloudSave() {
   window.clearTimeout(cloudSaveTimer);
   cloudSaveTimer = null;
   if (cloudSavePromise) return cloudSavePromise;
-  if (!cloudDirty) return true;
+  if (!cloudDirty) {
+    setSyncStatus(`Сохранено в ${currentTimeLabel()}`, 'saved');
+    return true;
+  }
   if (!supabaseClient || !cloudReady) return false;
   cloudSavePromise = saveCloudChanges();
   try { return await cloudSavePromise; }
@@ -724,6 +729,12 @@ async function saveCloudChanges() {
   cloudSaveInFlight = true;
   setSyncStatus("Сохраняем…", "pending");
   try {
+    // Do not let an expired/cleared SDK session silently send the public anon key.
+    // A no-op needs no request; every actual write must belong to this account.
+    if (!cloudPatchEnabled || cloudPendingPatch || SchoolSync.changes(cloudBaseline,cloudPayload(),cloudRawBaseline).length) {
+      await cloudRequest(SchoolAuth.requireSession(supabaseClient,currentProfile?.id));
+    }
+    cloudAuthRequired = false;
     const deadline = Date.now() + 60000;
     if (secureCloudMode && cloudPatchEnabled) return await saveAtomicChanges(deadline);
     for (let attempt=0; attempt<3 && cloudDirty; attempt++) {
@@ -768,11 +779,55 @@ async function saveCloudChanges() {
     return true;
   } catch(error) {
     console.warn('School save failed', error.message);
-    setSyncStatus('Не сохранено. Не закрывайте страницу. ' + SchoolSync.errorMessage(error), 'error');
+    if (!cloudDirty && !cloudPendingPatch && !cloudConflict) {
+      // A failed UI repaint cannot undo a server acknowledgment.
+      setSyncStatus(`Сохранено в ${currentTimeLabel()}`, 'saved');
+      return true;
+    }
+    cloudAuthRequired = error.code === 'AUTH_REQUIRED';
+    setSyncStatus(cloudAuthRequired
+      ? 'Сеанс входа завершён. Войдите снова — введённые изменения остаются на этой странице.'
+      : 'Сохранение не подтверждено. Не закрывайте страницу. ' + SchoolSync.errorMessage(error), 'error');
+    if (cloudAuthRequired) openCloudSaveLogin();
     return false;
   } finally {
     cloudSaveInFlight = false;
   }
+}
+
+function openCloudSaveLogin() {
+  if (authBusy || document.querySelector('#modalOverlay:not(.is-hidden)')) return;
+  openModal('Войти и сохранить изменения', `<form class="modal-form" data-modal-form="resumeSave">
+    <p>Сеанс входа закончился. Введите пароль повторно. Журнал и внесённые правки останутся открытыми.</p>
+    <label>Логин<input name="username" autocomplete="username" value="${escapeAttr(currentProfile?.username || '')}" readonly /></label>
+    <label>Пароль<input name="password" type="password" autocomplete="current-password" required /></label>
+    <p class="form-status" data-resume-status role="status"></p>
+    <button class="primary-button" type="submit">Войти и сохранить</button>
+  </form>`);
+}
+
+async function resumeCloudSave(form) {
+  if (authBusy) return;
+  const expectedId=currentProfile?.id;
+  const button=form.querySelector('button[type="submit"]');
+  const status=form.querySelector('[data-resume-status]');
+  authBusy=true;button.disabled=true;status.textContent='Проверяем вход…';
+  let signedIn=false;
+  try {
+    const result=await cloudRequest(SchoolAuth.signIn(supabaseClient,{
+      email:schoolAuthEmail(currentProfile.username),password:form.elements.password.value
+    }));
+    if (result.error) throw result.error;
+    if (result.data?.user?.id!==expectedId) throw new Error('Войдите в тот же аккаунт, чтобы сохранить эти изменения.');
+    form.elements.password.value='';
+    cloudAuthRequired=false;signedIn=true;
+  } catch(error) {
+    status.textContent=SchoolAuth.message(error);
+  } finally { authBusy=false;button.disabled=false; }
+  if (!signedIn) return;
+  // Keep state/baselines/request ID intact: never reload the database over unsaved edits.
+  closeModal();
+  await flushCloudSave();
 }
 
 async function saveAtomicChanges(deadline) {
@@ -891,7 +946,9 @@ function setSyncStatus(message, kind) {
   if (!status) return;
   status.textContent = message;
   status.dataset.kind = kind;
-  document.querySelector('#retryCloudSave')?.classList.toggle('is-hidden', kind !== 'error');
+  const retry=document.querySelector('#retryCloudSave');
+  retry?.classList.toggle('is-hidden', kind !== 'error');
+  if (retry) retry.textContent=cloudAuthRequired ? 'Войти и сохранить' : 'Повторить сохранение';
   document.querySelector('#resolveCloudConflict')?.classList.toggle('is-hidden', !cloudConflict);
 }
 

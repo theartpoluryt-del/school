@@ -2,6 +2,17 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
+
+test('write requires the same authenticated account, never an absent or different session',async()=>{
+  const {requireSession}=require('../auth-network.js');
+  for(const session of [null,{access_token:'synthetic',user:{id:'other'}},{user:{id:'mine'}}]) {
+    await assert.rejects(requireSession({auth:{getSession:async()=>({data:{session}})}},'mine'),{code:'AUTH_REQUIRED'});
+  }
+  const session={access_token:'synthetic',user:{id:'mine'}};
+  assert.equal(await requireSession({auth:{getSession:async()=>({data:{session}})}},'mine'),session);
+  await assert.rejects(requireSession({auth:{getSession:async()=>({error:{code:'refresh_token_not_found'}})}},'mine'),{code:'AUTH_REQUIRED'});
+  await assert.rejects(requireSession({auth:{getSession:async()=>({error:{code:'CLIENT_TIMEOUT'}})}},'mine'),{code:'CLIENT_TIMEOUT'});
+});
 test('Auth and profile requests bypass browser HTTP caches',async()=>{
   let options;const fetcher=require('../auth-network.js').boundedFetch(async(_,o)=>{options=o;return {ok:true};});
   await fetcher('https://example.invalid/auth/v1/user',{cache:'force-cache'});
@@ -33,6 +44,29 @@ function fixture({username='admin',profileError=null,missing=false,cloudOk=true}
   ['login','loadCurrentProfile','normalizeEmployeeUsername','schoolAuthEmail'].forEach(n=>load(n,ctx));
   return {ctx,button,event:{preventDefault(){},submitter:button,target:{reset(){}}}};
 }
+
+test('in-place reauthentication saves existing edits without reloading the journal',async()=>{
+  const {ctx}=fixture();load('resumeCloudSave',ctx);
+  ctx.currentProfile={id:'auth-id',username:'admin'};ctx.cloudAuthRequired=true;
+  const original=ctx.state;original.records=[{id:'r',grade:'5'}];
+  ctx.closeModal=()=>{ctx.closed=true;};ctx.flushCloudSave=async()=>{ctx.saved=true;return true;};
+  ctx.loadCloudState=()=>{throw new Error('Must not replace local edits');};
+  const button={disabled:false},status={textContent:''};
+  const form={elements:{password:{value:'synthetic-password'}},querySelector:s=>s==='button[type="submit"]'?button:status};
+  await ctx.resumeCloudSave(form);
+  assert.equal(ctx.state,original);assert.equal(original.records[0].grade,'5');
+  assert.equal(ctx.closed,true);assert.equal(ctx.saved,true);assert.equal(ctx.cloudAuthRequired,false);
+  assert.equal(form.elements.password.value,'');assert.equal(button.disabled,false);
+});
+
+test('wrong reauthentication password leaves unsaved edits open for another attempt',async()=>{
+  const {ctx}=fixture();load('resumeCloudSave',ctx);ctx.currentProfile={id:'auth-id',username:'admin'};
+  ctx.supabaseClient.auth.signInWithPassword=async()=>({error:{code:'invalid_credentials'}});
+  ctx.closeModal=()=>{throw new Error('Must keep form open');};
+  const button={disabled:false},status={textContent:''};
+  await ctx.resumeCloudSave({elements:{password:{value:'wrong'}},querySelector:s=>s==='button[type="submit"]'?button:status});
+  assert.match(status.textContent,/Неверный логин/);assert.equal(ctx.authBusy,false);assert.equal(button.disabled,false);
+});
 test('API outage is not misreported as missing profile; access remains closed',async()=>{
   const {ctx,button,event}=fixture({profileError:{code:'PGRST002',message:'schema cache unavailable'}});
   await ctx.login(event);

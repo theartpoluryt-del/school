@@ -84,11 +84,12 @@ function fixture(rpc) {
   const c=vm.createContext({structuredClone,SchoolSync,console:{warn(){}},window:{clearTimeout(){},setTimeout(){return 1;}},
     cloudSaveTimer:null,cloudSavePromise:null,cloudSaveInFlight:false,cloudDirty:true,cloudRevision:1,secureCloudMode:true,
     cloudReady:true,cloudStateId:'s',cloudStateVersion:'v1',cloudBaseline:{records:[]},cloudRawBaseline:{records:[]},
-    cloudPatchEnabled:false,cloudPendingPatch:null,cloudConflict:null,state:{records:[],sessionEmployeeId:'t'},createId:()=> 'request-'+Math.random(),
-    supabaseClient:{rpc,auth:{signOut:async()=>{c.signedOut=true;}}},cloudPayload:()=>structuredClone(c.state),
+    cloudPatchEnabled:false,cloudPendingPatch:null,cloudConflict:null,cloudAuthRequired:false,state:{records:[],sessionEmployeeId:'t'},createId:()=> 'request-'+Math.random(),
+    SchoolAuth:require('../auth-network.js'),openCloudSaveLogin(){c.loginRequested=true;},
+    supabaseClient:{rpc,auth:{getSession:async()=>({data:{session:{access_token:'synthetic',user:{id:'auth-id'}}}}),signOut:async()=>{c.signedOut=true;}}},cloudPayload:()=>structuredClone(c.state),
     migrateState:x=>structuredClone(x),setSyncStatus:(message,kind)=>{c.message=message;c.kind=kind;},
     currentTimeLabel:()=> '12:00',render(){},renderCloudAcknowledgement(){},alert:m=>{c.alert=m;},createDemoData:()=>({}),
-    setLoginPasswordVisibility(){},currentProfile:null});
+    setLoginPasswordVisibility(){},currentProfile:{id:'auth-id'}});
   const src=fs.readFileSync(require.resolve('../app.js'),'utf8');
   for(const name of ['cloudRequest','flushCloudSave','saveCloudChanges','saveAtomicChanges','ensureCloudSaved','logout']) {
     const start=src.indexOf(`async function ${name}(`),end=src.slice(start+1).search(/\n(?:async )?function /);
@@ -96,6 +97,44 @@ function fixture(rpc) {
   }
   return c;
 }
+
+test('expired session never sends a write as anon and retains unsaved edits',async()=>{
+  let writes=0;const c=fixture(async()=>{writes++;return {};});
+  c.cloudPatchEnabled=true;c.state.records=[{id:'r',grade:'4'}];
+  c.supabaseClient.auth.getSession=async()=>({data:{session:null}});
+  assert.equal(await c.flushCloudSave(),false);
+  assert.equal(writes,0);assert.equal(c.cloudDirty,true);assert.equal(c.loginRequested,true);
+  assert.equal(c.state.records[0].grade,'4');assert.match(c.message,/Сеанс входа завершён/);
+});
+
+test('restored session retries the original unacknowledged request without losing later edits',async()=>{
+  const requests=[];const c=fixture(async(name,args)=>{
+    requests.push(structuredClone(args));
+    if(requests.length===1)return {error:{message:'lost response'}};
+    return {data:{acknowledged_request_id:args.request_id,updated_at:'v2',payload:{records:[{id:'r',grade:args.changes[0].after.grade}]}}};
+  });
+  c.cloudPatchEnabled=true;c.state.records=[{id:'r',grade:'5'}];
+  assert.equal(await c.flushCloudSave(),false);
+  c.state.records[0].grade='4';
+  c.supabaseClient.auth.getSession=async()=>({data:{session:null}});
+  assert.equal(await c.flushCloudSave(),false);assert.equal(requests.length,1);
+  c.supabaseClient.auth.getSession=async()=>({data:{session:{access_token:'synthetic',user:{id:'auth-id'}}}});
+  assert.equal(await c.flushCloudSave(),true);
+  assert.deepEqual(requests[0],requests[1]);assert.equal(requests.length,3);
+  assert.equal(c.state.records[0].grade,'4');assert.equal(c.cloudDirty,false);
+});
+
+test('UI repaint failure after acknowledged write is not reported as unsaved',async()=>{
+  const c=fixture(async(name,args)=>({data:{acknowledged_request_id:args.request_id,updated_at:'v2',payload:{records:[{id:'r',grade:'5'}]}}}));
+  c.cloudPatchEnabled=true;c.state.records=[{id:'r',grade:'5'}];
+  c.renderCloudAcknowledgement=()=>{throw new Error('paint failed');};
+  assert.equal(await c.flushCloudSave(),true);assert.equal(c.cloudDirty,false);assert.equal(c.kind,'saved');
+});
+
+test('retry with no remaining edits clears a stale error without a write',async()=>{
+  let writes=0;const c=fixture(async()=>{writes++;});c.cloudDirty=false;c.kind='error';
+  assert.equal(await c.flushCloudSave(),true);assert.equal(writes,0);assert.equal(c.kind,'saved');
+});
 
 test('atomic save rebases a generated duplicate once and updates the canonical lesson',async()=>{
   let saves=0,loads=0;
@@ -192,13 +231,14 @@ test('conflict resolver only selects conflicting values and keeps unrelated chan
   assert.deepEqual(paths,['/records/r/grade']);assert.equal(result.records[0].grade,'4');assert.equal(result.records[0].topic,'Local topic');
 });
 test('logout waits for server acknowledgement',async()=>{
-  let release;const c=fixture(()=>new Promise(r=>{release=r;}));
+  let release,started;const sent=new Promise(r=>started=r);const c=fixture(()=>new Promise(r=>{release=r;started();}));
   const out=c.logout();assert.equal(c.signedOut,undefined);
+  await sent;
   release({data:{updated_at:'v2'}});await out;assert.equal(c.signedOut,true);
 });
 test('edit during in-flight save is saved in a second request',async()=>{
-  let release,calls=0;const c=fixture(async()=>{calls++;if(calls===1)return new Promise(r=>release=r);return {data:{updated_at:'v3'}};});
-  const out=c.flushCloudSave();c.state.records.push({id:'new'});c.cloudRevision++;
+  let release,started,calls=0;const sent=new Promise(r=>started=r);const c=fixture(async()=>{calls++;if(calls===1)return new Promise(r=>{release=r;started();});return {data:{updated_at:'v3'}};});
+  const out=c.flushCloudSave();await sent;c.state.records.push({id:'new'});c.cloudRevision++;
   release({data:{updated_at:'v2'}});assert.equal(await out,true);assert.equal(calls,2);assert.equal(c.cloudDirty,false);
 });
 
