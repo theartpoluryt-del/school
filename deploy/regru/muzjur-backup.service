@@ -1,0 +1,11 @@
+[Unit]
+Description=Music school database backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/muzjur
+ExecStart=/bin/sh /opt/muzjur/backup.sh
+UMask=0077
+Nice=10

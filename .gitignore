@@ -6,6 +6,7 @@ node_modules/
 .DS_Store
 deploy/regru/.env
 deploy/regru/.source-db.env
+deploy/regru/.source-ca.crt
 deploy/regru/public/
 deploy/regru/backups/
 deploy/regru/import/

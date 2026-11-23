@@ -17,7 +17,7 @@ async function fixture(t, {admin=true,authFailure=0} = {}) {
     if (url==='http://auth/admin/users/teacher-user') return Response.json({}, {status:authFailure || 200});
     throw new Error('Unexpected request '+url);
   };
-  const server=createAccountsServer({authUrl:'http://auth',restUrl:'http://rest',serviceKey:'private-service-key',fetcher});
+  const server=createAccountsServer({authUrl:'http://auth',restUrl:'http://rest',serviceKey:'private-service-key',fetcher,allowedOrigins:['https://muzjur.ru']});
   server.listen(0,'127.0.0.1');
   await once(server,'listening');
   t.after(()=>new Promise(resolve=>{server.close(resolve);server.closeAllConnections();}));
@@ -25,6 +25,23 @@ async function fixture(t, {admin=true,authFailure=0} = {}) {
   const reset=(body={},token='real-session')=>fetch(url,{method:'POST',headers:{Authorization:'Bearer '+token},body:JSON.stringify({currentUsername:'teacher',newUsername:'teacher',newPassword:'Long-password-123',...body})});
   return {calls,reset,url};
 }
+
+test('browser preflight permits the school site without changing credentials',async t=>{
+  const f=await fixture(t);
+  const response=await fetch(f.url,{method:'OPTIONS',headers:{Origin:'https://muzjur.ru','Access-Control-Request-Method':'POST','Access-Control-Request-Headers':'authorization,apikey,content-type'}});
+  assert.equal(response.status,204);
+  assert.equal(response.headers.get('Access-Control-Allow-Origin'),'https://muzjur.ru');
+  assert.match(response.headers.get('Access-Control-Allow-Headers'),/authorization/);
+  assert.equal(f.calls.length,0);
+});
+
+test('browser preflight denies unlisted origins',async t=>{
+  const f=await fixture(t);
+  const response=await fetch(f.url,{method:'OPTIONS',headers:{Origin:'https://unrelated.example'}});
+  assert.equal(response.status,403);
+  assert.equal(response.headers.get('Access-Control-Allow-Origin'),null);
+  assert.equal(f.calls.length,0);
+});
 
 test('password reset requires a verified admin session',async t=>{
   const f=await fixture(t,{admin:false});

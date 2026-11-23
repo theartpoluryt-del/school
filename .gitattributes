@@ -1,1 +1,2 @@
 deploy/regru/* text eol=lf
+vendor/supabase.js -text -whitespace

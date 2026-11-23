@@ -10,12 +10,16 @@ CREATE ROLE school_rest LOGIN NOINHERIT PASSWORD '$REST_DB_PASSWORD';
 GRANT anon, authenticated, service_role TO school_rest;
 CREATE ROLE school_auth LOGIN NOINHERIT PASSWORD '$AUTH_DB_PASSWORD';
 CREATE SCHEMA auth AUTHORIZATION school_auth;
+ALTER ROLE school_auth SET search_path = auth,extensions,public;
 CREATE SCHEMA extensions;
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;
 GRANT USAGE ON SCHEMA public, extensions TO school_auth, anon, authenticated, service_role;
 GRANT USAGE ON SCHEMA auth TO anon, authenticated, service_role;
 CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS
 \$\$ SELECT coalesce(nullif(current_setting('request.jwt.claim.sub',true),''),nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'sub')::uuid \$\$;
 CREATE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS
 \$\$ SELECT coalesce(nullif(current_setting('request.jwt.claims',true),'')::jsonb,'{}'::jsonb) \$\$;
+ALTER FUNCTION auth.uid() OWNER TO school_auth;
+ALTER FUNCTION auth.jwt() OWNER TO school_auth;
 SQL

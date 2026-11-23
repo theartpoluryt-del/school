@@ -9,7 +9,8 @@ begin
  select p.id,e->>'id' into uid,employee from public.school_profiles p,jsonb_array_elements(source->'employees') e,public.school_accompanists a
  where e->>'username'=p.username and a.employee_id=e->>'id' and a.enabled and not p.is_admin limit 1;
  select a.employee_id into other_employee from public.school_accompanists a where a.enabled and a.employee_id<>employee limit 1;
- select p.id,e->>'id' into admin_uid,admin_employee from public.school_profiles p,jsonb_array_elements(source->'employees') e where p.is_admin and e->>'username'=p.username limit 1;
+ select p.id,e->>'id' into admin_uid,admin_employee from public.school_profiles p,jsonb_array_elements(source->'employees') e,public.school_accompanists a
+ where p.is_admin and e->>'username'=p.username and a.employee_id=e->>'id' and a.enabled limit 1;
  if uid is null or admin_uid is null then raise exception 'Actors missing'; end if;
  select jsonb_agg(s->>'id'),jsonb_agg(s) into pupil_ids,roster from (select s from jsonb_array_elements(source->'students') s limit 2) q;
  row1:=jsonb_build_object('id','qa-kc-old','employeeId',employee,'studentId','qa-group','participantIds',pupil_ids,

@@ -1,6 +1,7 @@
 import http from 'node:http';
 
-export function createAccountsServer({authUrl, restUrl, serviceKey, fetcher = fetch}) {
+export function createAccountsServer({authUrl, restUrl, serviceKey, fetcher = fetch, allowedOrigins = []}) {
+  const origins = new Set(allowedOrigins);
   const request = async (base, route, token, options = {}) => {
     const response = await fetcher(base+route, {...options, signal:AbortSignal.timeout(12000),
       headers:{'Content-Type':'application/json',Authorization:'Bearer '+token,...options.headers}});
@@ -13,10 +14,21 @@ export function createAccountsServer({authUrl, restUrl, serviceKey, fetcher = fe
     return value;
   };
   return http.createServer(async (req,res) => {
+    const allowedOrigin = origins.has(req.headers.origin);
+    if (allowedOrigin) {
+      res.setHeader('Access-Control-Allow-Origin',req.headers.origin);
+      res.setHeader('Vary','Origin');
+      res.setHeader('Access-Control-Allow-Methods','POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers','authorization, apikey, content-type, x-client-info, x-supabase-api-version');
+    }
     const send = (status,value) => {
       res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store'});
       res.end(JSON.stringify(value));
     };
+    if (req.url === '/functions/v1/manage-school-user' && req.method === 'OPTIONS') {
+      res.writeHead(allowedOrigin?204:403,{'Cache-Control':'no-store'});
+      return res.end();
+    }
     if (req.url !== '/functions/v1/manage-school-user' || req.method !== 'POST') return send(404,{error:'Not found'});
     const token = /^Bearer (.+)$/.exec(req.headers.authorization || '')?.[1];
     if (!token) return send(401,{error:'Authentication required'});
@@ -73,6 +85,7 @@ export function createAccountsServer({authUrl, restUrl, serviceKey, fetcher = fe
 if (process.env.PORT) {
   const {AUTH_URL,REST_URL,SERVICE_ROLE_KEY}=process.env;
   if (!AUTH_URL || !REST_URL || !SERVICE_ROLE_KEY) throw new Error('Account service configuration is incomplete');
-  createAccountsServer({authUrl:AUTH_URL,restUrl:REST_URL,serviceKey:SERVICE_ROLE_KEY})
+  createAccountsServer({authUrl:AUTH_URL,restUrl:REST_URL,serviceKey:SERVICE_ROLE_KEY,
+    allowedOrigins:(process.env.ALLOWED_ORIGINS||'').split(',').map(x=>x.trim()).filter(Boolean)})
     .listen(Number(process.env.PORT),'0.0.0.0');
 }

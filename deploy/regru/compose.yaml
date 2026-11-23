@@ -34,8 +34,8 @@ services:
       GOTRUE_API_HOST: 0.0.0.0
       GOTRUE_API_PORT: 9999
       GOTRUE_DB_DRIVER: postgres
-      GOTRUE_DB_DATABASE_URL: postgres://school_auth:${AUTH_DB_PASSWORD}@db:5432/school
-      GOTRUE_SITE_URL: https://${DOMAIN}
+      GOTRUE_DB_DATABASE_URL: postgres://school_auth:${AUTH_DB_PASSWORD}@db:5432/${APP_DB:-school}
+      GOTRUE_SITE_URL: ${SITE_URL:-https://muzjur.ru}
       API_EXTERNAL_URL: https://${DOMAIN}/auth/v1
       GOTRUE_JWT_SECRET: ${JWT_SECRET}
       GOTRUE_JWT_AUD: authenticated
@@ -57,13 +57,14 @@ services:
       db:
         condition: service_healthy
     environment:
-      PGRST_DB_URI: postgres://school_rest:${REST_DB_PASSWORD}@db:5432/school
+      PGRST_DB_URI: postgres://school_rest:${REST_DB_PASSWORD}@db:5432/${APP_DB:-school}
       PGRST_DB_SCHEMAS: public
       PGRST_DB_EXTRA_SEARCH_PATH: public,extensions
       PGRST_DB_ANON_ROLE: anon
       PGRST_JWT_SECRET: ${JWT_SECRET}
       PGRST_DB_POOL: 8
       PGRST_DB_MAX_ROWS: 1000
+      PGRST_SERVER_CORS_ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://muzjur.ru}
   accounts:
     image: node:24-alpine
     restart: unless-stopped
@@ -74,6 +75,7 @@ services:
       AUTH_URL: http://auth:9999
       REST_URL: http://rest:3000
       PORT: 8080
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://muzjur.ru}
     volumes:
       - ./accounts.mjs:/app/accounts.mjs:ro
     read_only: true

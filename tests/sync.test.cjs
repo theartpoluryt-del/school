@@ -248,5 +248,6 @@ test('SDK retries disabled and version pinned to avoid changes outside deploymen
   const src=fs.readFileSync(require.resolve('../app.js'),'utf8');
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
   assert.match(src,/createClient\([^\n]+retry: false/);
-  assert.match(html,/@supabase\/supabase-js@2\.116\.0/);
+  assert.match(html,/src="\/vendor\/supabase\.js\?v=[a-f0-9]{16}"/);
+  assert.ok(fs.readFileSync(require.resolve('../vendor/supabase.js'),'utf8').includes('2.116.0'));
 });

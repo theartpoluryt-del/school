@@ -1,4 +1,1 @@
-window.SCHOOL_SUPABASE_CONFIG = {
-  url: "https://ebepcboologelhoisnlk.supabase.co",
-  publishableKey: "sb_publishable_U9r2dkIKdoR31PyWWe3PCQ_xXUejCmi"
-};
+window.SCHOOL_SUPABASE_CONFIG={"url":"https://api.muzjur.ru","publishableKey":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InNjaG9vbC12cHMiLCJpYXQiOjE3OTU0Mjc3MzEsImV4cCI6MjExMDc4NzczMX0.KJCp32NcrLsY5NKPH4YAWUzKmHxpmocdpBgeLLbu_GA"};
