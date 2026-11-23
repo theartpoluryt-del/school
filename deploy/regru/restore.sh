@@ -25,5 +25,7 @@ docker compose stop auth rest accounts
 docker compose exec -T db psql -U postgres -d "$target_db" -v ON_ERROR_STOP=1 --single-transaction < "$source_dir/accounts.sql"
 docker compose exec -T db psql -U postgres -d "$target_db" -v ON_ERROR_STOP=1 --single-transaction < "$source_dir/school.sql"
 docker compose exec -T db psql -U postgres -d "$target_db" -v ON_ERROR_STOP=1 < grants.sql
-docker compose up -d auth rest accounts
+if [ "${RESTORE_KEEP_STOPPED:-0}" != 1 ]; then
+  docker compose up -d auth rest accounts
+fi
 printf 'Restored. Verify accounts, RLS and journal totals before starting the public web service.\n'
