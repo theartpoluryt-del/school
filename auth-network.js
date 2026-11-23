@@ -3,14 +3,26 @@
   function message(error) {
     if (error?.code === 'invalid_credentials') return 'Неверный логин или пароль.';
     if (error?.status === 429 || /rate_limit|too_many/i.test(error?.code || '')) return 'Слишком много попыток входа. Подождите несколько минут и повторите.';
-    if (/refresh_token|session_not_found/.test(error?.code || '')) return 'Сессия входа истекла. Введите логин и пароль заново.';
-    if (error?.code === 'CLIENT_TIMEOUT' || [408,504].includes(error?.status) || /lock|timeout|timed out|abort/i.test(error?.name + ' ' + error?.message)) return 'Проверка входа заняла слишком много времени. Убедитесь, что VPN выключен, и повторите попытку. Если снова зависнет, нажмите «Восстановить вход».';
-    return 'Нет ответа от сервера входа. Проверьте соединение и повторите чуть позже. Это не означает, что пароль неверный.';
+    if (isSessionError(error)) return 'Введите логин и пароль, чтобы продолжить работу.';
+    if (error?.code === 'CLIENT_TIMEOUT' || [408,504].includes(error?.status) || /lock|timeout|timed out|abort/i.test(error?.name + ' ' + error?.message)) return 'Не удалось войти. Убедитесь, что VPN выключен, и повторите попытку.';
+    return 'Не удалось войти. Проверьте подключение к интернету и попробуйте ещё раз.';
+  }
+  function isSessionError(error) {
+    return /refresh_token|session_not_found|session_expired|bad_jwt|invalid_jwt/.test(error?.code || '');
   }
   function isTemporary(error) {
     if (error?.status === 429 || error?.code === 'invalid_credentials') return false;
     return [502,503,504].includes(error?.status) || error?.code === 'CLIENT_TIMEOUT' ||
-      /AuthRetryableFetchError|AbortError|TimeoutError|TypeError/.test(error?.name || '');
+      /AuthRetryableFetchError|AbortError|TimeoutError|TypeError/.test(error?.name || '') ||
+      /timeout|timed out|failed to fetch|network|load failed/i.test(error?.message || '');
+  }
+  async function retryRead(operation, retryResult, delay = ms => new Promise(resolve => setTimeout(resolve, ms))) {
+    let result;
+    try { result=await operation(); }
+    catch(error) { if(!isTemporary(error)) throw error;await delay(400);return operation(); }
+    if(!retryResult(result)) return result;
+    await delay(400);
+    return operation();
   }
   // Covers Auth fetches as well as PostgREST; respect caller cancellation.
   function boundedFetch(fetcher, timeoutMs = 15000) {
@@ -56,8 +68,8 @@
     return client.auth.signInWithPassword(credentials);
   }
   function stageMessage(error, stage) {
-    const labels = {session:'восстановление сеанса',auth:'проверка логина и пароля',profile:'загрузка профиля',data:'загрузка журнала'};
-    return `${message(error)} Этап: ${labels[stage] || stage}. Код: ${stage === 'session' ? 'S' : stage === 'profile' ? 'P' : stage === 'data' ? 'D' : 'A'}-20261009.`;
+    const text=message(error);
+    return ['profile','data'].includes(stage) ? text.replace(/^Не удалось войти\./,'Не удалось открыть журнал.') : text;
   }
   function clearSession(storage, projectUrl) {
     const key = `sb-${new URL(projectUrl).hostname.split('.')[0]}-auth-token`;
@@ -72,7 +84,7 @@
     }
     return session;
   }
-  const api = {message, stageMessage, isTemporary, signIn, boundedFetch, clearSession, requireSession};
+  const api = {message, stageMessage, isTemporary, isSessionError, retryRead, signIn, boundedFetch, clearSession, requireSession};
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SchoolAuth = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

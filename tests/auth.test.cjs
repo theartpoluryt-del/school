@@ -41,7 +41,7 @@ function fixture({username='admin',profileError=null,missing=false,cloudOk=true}
     setLoginStatus:message=>{ctx.message=message;},
     setLoginPasswordVisibility(){},render:()=>{ctx.rendered=true;}
   });
-  ['login','loadCurrentProfile','normalizeEmployeeUsername','schoolAuthEmail'].forEach(n=>load(n,ctx));
+  ['login','initializeAuth','loadCurrentProfile','normalizeEmployeeUsername','schoolAuthEmail'].forEach(n=>load(n,ctx));
   return {ctx,button,event:{preventDefault(){},submitter:button,target:{reset(){}}}};
 }
 
@@ -70,7 +70,7 @@ test('wrong reauthentication password leaves unsaved edits open for another atte
 test('API outage is not misreported as missing profile; access remains closed',async()=>{
   const {ctx,button,event}=fixture({profileError:{code:'PGRST002',message:'schema cache unavailable'}});
   await ctx.login(event);
-  assert.match(ctx.message,/сервер временно недоступен/);
+  assert.match(ctx.message,/Не удалось открыть журнал/);
   assert.equal(ctx.currentProfile,null);
   assert.equal(ctx.state.sessionEmployeeId,undefined);
   assert.equal(ctx.signedOut,undefined);
@@ -80,14 +80,14 @@ test('API outage is not misreported as missing profile; access remains closed',a
 test('genuinely missing employee profile is distinguished from outage',async()=>{
   const {ctx,event}=fixture({missing:true,profileError:{code:'PGRST116'}});
   await ctx.login(event);
-  assert.match(ctx.message,/Профиль сотрудника не настроен/);
+  assert.match(ctx.message,/Доступ к журналу не настроен/);
   assert.equal(ctx.state.sessionEmployeeId,undefined);
   assert.equal(ctx.hasPendingSession,false);
 });
 test('school data failure does not grant a local admin session',async()=>{
   const {ctx,event}=fixture({cloudOk:false});
   await ctx.login(event);
-  assert.match(ctx.message,/Не удалось загрузить школьную базу/);
+  assert.match(ctx.message,/Не удалось открыть журнал/);
   assert.equal(ctx.currentProfile,null);
   assert.equal(ctx.state.sessionEmployeeId,undefined);
   assert.equal(ctx.hasPendingSession,true);
@@ -120,7 +120,7 @@ test('hung sign-in and profile requests release the form, never granting access'
     if (stage==='auth') ctx.supabaseClient.auth.signInWithPassword=()=>new Promise(()=>{});
     else ctx.loadCurrentProfile=()=>ctx.cloudRequest(new Promise(()=>{}));
     await ctx.login(event);
-    assert.match(ctx.message,/слишком много времени/);
+    assert.match(ctx.message,/VPN выключен/);
     assert.equal(button.disabled,false);
     assert.equal(ctx.authBusy,false);
     assert.equal(ctx.currentProfile,null);
@@ -209,11 +209,12 @@ test('password sign-in retries transient failures once, never credentials or rat
   assert.equal(calls,2);
 });
 
-test('stage diagnostics distinguish recovery, auth, profile and journal without server details',()=>{
+test('login failures show a simple message without internal stage names or diagnostic codes',()=>{
   const {stageMessage}=require('../auth-network.js');
   for(const [stage,code] of [['session','S'],['auth','A'],['profile','P'],['data','D']]) {
     const message=stageMessage({code:'CLIENT_TIMEOUT',message:'sensitive server details'},stage);
-    assert.ok(message.includes(`${code}-20261009`));
+    assert.ok(message.includes('VPN выключен'));
+    assert.doesNotMatch(message,/Этап:|Код:|Восстановить|202610/);
     assert.ok(!message.includes('sensitive'));
   }
 });
@@ -249,7 +250,7 @@ test('journal retry uses the accepted session, rechecks access, and never resend
   ctx.supabaseClient.auth.signInWithPassword=()=>assert.fail('must not submit password again');
   ctx.loadCloudState=async()=>true;
   load('initializeAuth',ctx);
-  await ctx.initializeAuth();
+  await ctx.login(event);
   assert.equal(ctx.state.sessionEmployeeId,'employee-id');
   assert.equal(ctx.hasPendingSession,false);
   assert.equal(button.disabled,false);
@@ -268,12 +269,30 @@ test('journal retry cannot bypass a missing or revoked profile',async()=>{
   assert.equal(ctx.hasPendingSession,false);
 });
 
-test('retry control is visible only for a failed load with a pending session',()=>{
-  const resume={hidden:true},status={dataset:{}};
-  const ctx=vm.createContext({hasPendingSession:false,document:{querySelector:s=>s==='#resumeLogin'?resume:status}});
-  load('setLoginStatus',ctx);
-  ctx.setLoginStatus('error','error');assert.equal(resume.hidden,true);
-  ctx.hasPendingSession=true;
-  ctx.setLoginStatus('error','error');assert.equal(resume.hidden,false);
-  ctx.setLoginStatus('loading','info');assert.equal(resume.hidden,true);
+test('journal load retries once automatically without resending the password',async()=>{
+  const {ctx,event}=fixture();let loads=0,signIns=0;
+  ctx.supabaseClient.auth.signInWithPassword=async()=>{signIns++;return {data:{user:{id:'auth-id'}}};};
+  ctx.loadCloudState=async()=>++loads>1;
+  await ctx.login(event);
+  assert.equal(signIns,1);assert.equal(loads,2);assert.equal(ctx.state.sessionEmployeeId,'employee-id');
+  assert.equal(ctx.message,'');assert.equal(ctx.authBusy,false);
+});
+
+test('invalid saved session is cleared automatically and returns to the ordinary login form',async()=>{
+  const {ctx,button}=fixture();const query=ctx.document.querySelector;
+  ctx.document.querySelector=s=>s.startsWith('#loginForm ')?button:query(s);
+  ctx.supabaseClient.auth.getSession=async()=>({error:{code:'refresh_token_not_found'}});
+  ctx.loadCloudState=()=>assert.fail('No access after invalid saved session');
+  await ctx.initializeAuth();
+  assert.equal(ctx.signedOut,true);assert.equal(ctx.hasPendingSession,false);
+  assert.equal(ctx.message,'');assert.equal(button.textContent,'Войти');assert.equal(button.disabled,false);
+  assert.equal(ctx.state.sessionEmployeeId,undefined);
+});
+
+test('automatic read recovery stops after one retry and never retries permission errors',async()=>{
+  const {retryRead}=require('../auth-network.js');let calls=0;
+  assert.equal(await retryRead(async()=>{calls++;return false;},x=>!x,async()=>{}),false);
+  assert.equal(calls,2);calls=0;
+  await assert.rejects(retryRead(async()=>{calls++;throw {code:'42501'};},()=>true,async()=>{}),{code:'42501'});
+  assert.equal(calls,1);
 });

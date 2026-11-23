@@ -104,7 +104,7 @@ test('expired session never sends a write as anon and retains unsaved edits',asy
   c.supabaseClient.auth.getSession=async()=>({data:{session:null}});
   assert.equal(await c.flushCloudSave(),false);
   assert.equal(writes,0);assert.equal(c.cloudDirty,true);assert.equal(c.loginRequested,true);
-  assert.equal(c.state.records[0].grade,'4');assert.match(c.message,/Сеанс входа завершён/);
+  assert.equal(c.state.records[0].grade,'4');assert.match(c.message,/введите пароль ещё раз/);
 });
 
 test('restored session retries the original unacknowledged request without losing later edits',async()=>{

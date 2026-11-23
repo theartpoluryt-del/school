@@ -112,8 +112,14 @@ const titles = {
 
 tabs.forEach((tab) => tab.addEventListener("click", () => switchTab(tab.dataset.tab)));
 document.querySelector("#loginForm").addEventListener("submit", login);
-document.querySelector('#recoverLogin').addEventListener('click', recoverLogin);
-document.querySelector('#resumeLogin').addEventListener('click', () => { if (!authBusy) void initializeAuth(); });
+// The single sign-in button also retries an accepted sign-in after a load failure.
+document.querySelector('#loginForm').noValidate = true;
+document.querySelector('#loginForm').addEventListener('input', event => {
+  if (!authBusy && event.target.matches('#loginUsername,#loginPassword')) {
+    hasPendingSession=false;
+    document.querySelector('#loginForm button[type="submit"]').textContent='Войти';
+  }
+});
 document.querySelector("#toggleLoginPassword").addEventListener("click", toggleLoginPassword);
 document.querySelector("#modalClose").addEventListener("click", closeModal);
 document.querySelector("#modalOverlay").addEventListener("click", (event) => {
@@ -684,11 +690,11 @@ async function loadCloudState() {
 }
 
 async function loadCurrentProfile(userId) {
-  const { data, error } = await cloudRequest(supabaseClient
+  const { data, error } = await SchoolAuth.retryRead(() => cloudRequest(supabaseClient
     .from("school_profiles")
     .select("id, username, display_name, role, is_admin")
     .eq("id", userId)
-    .single());
+    .single()), result => Boolean(result.error && SchoolAuth.isTemporary(result.error)));
   profileLoadError = error;
   if (error || !data) {
     console.warn("Supabase profile load failed", error?.message || "profile not found");
@@ -786,7 +792,7 @@ async function saveCloudChanges() {
     }
     cloudAuthRequired = error.code === 'AUTH_REQUIRED';
     setSyncStatus(cloudAuthRequired
-      ? 'Сеанс входа завершён. Войдите снова — введённые изменения остаются на этой странице.'
+      ? 'Чтобы сохранить изменения, введите пароль ещё раз. Ваши правки остаются на этой странице.'
       : 'Сохранение не подтверждено. Не закрывайте страницу. ' + SchoolSync.errorMessage(error), 'error');
     if (cloudAuthRequired) openCloudSaveLogin();
     return false;
@@ -797,8 +803,8 @@ async function saveCloudChanges() {
 
 function openCloudSaveLogin() {
   if (authBusy || document.querySelector('#modalOverlay:not(.is-hidden)')) return;
-  openModal('Войти и сохранить изменения', `<form class="modal-form" data-modal-form="resumeSave">
-    <p>Сеанс входа закончился. Введите пароль повторно. Журнал и внесённые правки останутся открытыми.</p>
+  openModal('Продолжить работу', `<form class="modal-form" data-modal-form="resumeSave">
+    <p>Введите пароль, чтобы сохранить изменения. Ваши правки останутся на этой странице.</p>
     <label>Логин<input name="username" autocomplete="username" value="${escapeAttr(currentProfile?.username || '')}" readonly /></label>
     <label>Пароль<input name="password" type="password" autocomplete="current-password" required /></label>
     <p class="form-status" data-resume-status role="status"></p>
@@ -811,7 +817,7 @@ async function resumeCloudSave(form) {
   const expectedId=currentProfile?.id;
   const button=form.querySelector('button[type="submit"]');
   const status=form.querySelector('[data-resume-status]');
-  authBusy=true;button.disabled=true;status.textContent='Проверяем вход…';
+  authBusy=true;button.disabled=true;status.textContent='Входим…';
   let signedIn=false;
   try {
     const result=await cloudRequest(SchoolAuth.signIn(supabaseClient,{
@@ -1055,18 +1061,21 @@ function importSchoolData(event) {
 async function login(event) {
   event.preventDefault();
   if (authBusy) return;
+  if (hasPendingSession) { await initializeAuth(); return; }
+  if (event.target.reportValidity?.() === false) return;
   const username = normalizeEmployeeUsername(document.querySelector("#loginUsername").value);
   const password = document.querySelector("#loginPassword").value;
   const submitButton = event.submitter || event.target.querySelector('button[type="submit"]');
   submitButton.disabled = true;
+  submitButton.textContent = 'Входим…';
   authBusy = true;
   let loginStage = 'auth';
   try {
   hasPendingSession = false;
-  setLoginStatus("Проверяем данные…", "info");
+  setLoginStatus('', '');
 
   if (!supabaseClient) {
-    setLoginStatus("Подключение к серверу не настроено. Обратитесь к администратору.", "error");
+    setLoginStatus("Не удалось открыть журнал. Обратитесь к администратору.", "error");
     submitButton.disabled = false;
     return;
   }
@@ -1074,7 +1083,7 @@ async function login(event) {
   const { data: authData, error } = await cloudRequest(SchoolAuth.signIn(supabaseClient, {
     email: schoolAuthEmail(username),
     password
-  }, () => setLoginStatus('Связь с сервером прервалась. Повторяем вход один раз…', 'info')), 35000);
+  }), 35000);
   if (error || !authData?.user) {
     console.warn("Supabase sign-in failed", error?.message || "user not returned");
     setLoginStatus(SchoolAuth.stageMessage(error, loginStage), "error");
@@ -1083,7 +1092,6 @@ async function login(event) {
   }
 
   hasPendingSession = true;
-  setLoginStatus('Вход подтверждён. Загружаем профиль…', 'info');
   loginStage = 'profile';
   currentProfile = await loadCurrentProfile(authData.user.id);
   if (!currentProfile || normalizeEmployeeUsername(currentProfile.username) !== username) {
@@ -1094,16 +1102,15 @@ async function login(event) {
     }
     currentProfile = null;
     setLoginStatus(profileLoadError && profileLoadError.code !== "PGRST116"
-      ? "Вход подтверждён, но сервер временно недоступен при загрузке профиля. Нажмите «Загрузить журнал» — вводить пароль повторно не нужно. Код: P-20261022."
-      : "Профиль сотрудника не настроен. Обратитесь к администратору.", "error");
+      ? SchoolAuth.stageMessage(profileLoadError, 'profile')
+      : "Доступ к журналу не настроен. Обратитесь к администратору.", "error");
     submitButton.disabled = false;
     return;
   }
-  setLoginStatus('Загружаем журнал…', 'info');
   loginStage = 'data';
-  if (!await loadCloudState()) {
+  if (!await SchoolAuth.retryRead(loadCloudState, loaded => !loaded)) {
     currentProfile = null;
-    setLoginStatus("Вход подтверждён. Не удалось загрузить школьную базу. Нажмите «Загрузить журнал» — вводить пароль повторно не нужно. Код: D-20261022.", "error");
+    setLoginStatus("Не удалось открыть журнал. Убедитесь, что VPN выключен, и попробуйте ещё раз.", "error");
     submitButton.disabled = false;
     return;
   }
@@ -1113,7 +1120,7 @@ async function login(event) {
     hasPendingSession = false;
     await cloudRequest(supabaseClient.auth.signOut({ scope: 'local' }), 5000).catch(() => {});
     currentProfile = null;
-    setLoginStatus("Профиль сотрудника не связан со школьной базой.", "error");
+    setLoginStatus("Не удалось открыть ваш журнал. Обратитесь к администратору.", "error");
     submitButton.disabled = false;
     return;
   }
@@ -1134,17 +1141,8 @@ async function login(event) {
   } finally {
     authBusy = false;
     submitButton.disabled = false;
+    submitButton.textContent = hasPendingSession ? 'Повторить' : 'Войти';
   }
-}
-
-function recoverLogin() {
-  if (authBusy || currentUser() || cloudDirty) return;
-  // Only this project's saved sign-in is cleared; no journals or other sites.
-  SchoolAuth.clearSession(localStorage, supabaseConfig.url);
-  SchoolAuth.clearSession(sessionStorage, supabaseConfig.url);
-  const url = new URL(window.location.href);
-  url.searchParams.set('v', Date.now().toString());
-  window.location.replace(url.toString());
 }
 
 async function logout() {
@@ -1182,25 +1180,24 @@ function setLoginStatus(message, kind) {
   const status = document.querySelector("#loginStatus");
   status.textContent = message;
   status.dataset.kind = kind;
-  const resume = document.querySelector('#resumeLogin');
-  if (resume) resume.hidden = !(hasPendingSession && kind === 'error');
 }
 
 async function initializeAuth() {
   if (authBusy) return;
   render();
   if (!supabaseClient) {
-    setLoginStatus("Подключение к серверу не настроено.", "error");
+    setLoginStatus("Не удалось открыть журнал. Обратитесь к администратору.", "error");
     return;
   }
   const button = document.querySelector('#loginForm button[type="submit"]');
   authBusy = true;
   button.disabled = true;
+  button.textContent = 'Входим…';
   let loginStage = 'session';
   try {
   // SDK refresh can retry within its 30-second recovery window; don't abandon it at 20s
   // and let a second sign-in race the still-running recovery.
-  setLoginStatus('Восстанавливаем вход…', 'info');
+  setLoginStatus('', '');
   const { data, error } = await cloudRequest(supabaseClient.auth.getSession(), 45000);
   if (error) throw error;
   const user = data.session?.user;
@@ -1211,14 +1208,14 @@ async function initializeAuth() {
   if (!currentProfile) {
     if (!profileLoadError || profileLoadError.code === 'PGRST116') hasPendingSession = false;
     setLoginStatus(profileLoadError && profileLoadError.code !== 'PGRST116'
-      ? 'Вход сохранён, но не удалось загрузить профиль. Нажмите «Загрузить журнал» — вводить пароль повторно не нужно. Код: P-20261022.'
-      : 'Профиль сотрудника не настроен. Обратитесь к администратору.', 'error');
+      ? SchoolAuth.stageMessage(profileLoadError, 'profile')
+      : 'Доступ к журналу не настроен. Обратитесь к администратору.', 'error');
     return;
   }
   loginStage = 'data';
-  if (!await loadCloudState()) {
+  if (!await SchoolAuth.retryRead(loadCloudState, loaded => !loaded)) {
     currentProfile = null;
-    setLoginStatus('Вход сохранён. Не удалось загрузить журнал. Нажмите «Загрузить журнал» — вводить пароль повторно не нужно. Код: D-20261022.', 'error');
+    setLoginStatus('Не удалось открыть журнал. Убедитесь, что VPN выключен, и попробуйте ещё раз.', 'error');
     return;
   }
   const employee = state.employees.find((item) => item.username === currentProfile.username);
@@ -1237,10 +1234,17 @@ async function initializeAuth() {
   void globalThis.SchoolPasswords?.offer();
   } catch (error) {
     currentProfile = null;
+    if (loginStage === 'session' && SchoolAuth.isSessionError(error)) {
+      hasPendingSession = false;
+      await cloudRequest(supabaseClient.auth.signOut({scope:'local'}),5000).catch(() => {});
+      setLoginStatus('', '');
+      return;
+    }
     setLoginStatus(SchoolAuth.stageMessage(error, loginStage), 'error');
   } finally {
     authBusy = false;
     button.disabled = false;
+    button.textContent = hasPendingSession ? 'Повторить' : 'Войти';
   }
 }
 
