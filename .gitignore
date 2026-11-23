@@ -4,3 +4,8 @@ docx_extract.txt
 pdf_extract.txt
 node_modules/
 .DS_Store
+deploy/regru/.env
+deploy/regru/.source-db.env
+deploy/regru/public/
+deploy/regru/backups/
+deploy/regru/import/

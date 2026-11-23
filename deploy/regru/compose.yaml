@@ -1,0 +1,98 @@
+name: muzjur
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '3'
+services:
+  db:
+    image: postgres:17.11-alpine
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      POSTGRES_DB: school
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run prepare.mjs first}
+      AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD}
+      REST_DB_PASSWORD: ${REST_DB_PASSWORD}
+    volumes:
+      - database:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/01-school.sh:ro
+    command: [postgres, -c, shared_buffers=128MB, -c, max_connections=40, -c, statement_timeout=20000]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U postgres -d school']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  auth:
+    image: supabase/gotrue:v2.198.0
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://school_auth:${AUTH_DB_PASSWORD}@db:5432/school
+      GOTRUE_SITE_URL: https://${DOMAIN}
+      API_EXTERNAL_URL: https://${DOMAIN}/auth/v1
+      GOTRUE_JWT_SECRET: ${JWT_SECRET}
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_EXP: 3600
+      GOTRUE_DISABLE_SIGNUP: 'true'
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: 'true'
+      GOTRUE_MAILER_AUTOCONFIRM: 'true'
+      GOTRUE_SECURITY_REFRESH_TOKEN_ROTATION_ENABLED: 'true'
+      GOTRUE_SECURITY_REFRESH_TOKEN_REUSE_INTERVAL: 10
+      GOTRUE_PASSWORD_MIN_LENGTH: 12
+      GOTRUE_RATE_LIMIT_EMAIL_SENT: 0
+  rest:
+    image: postgrest/postgrest:v14.18
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGRST_DB_URI: postgres://school_rest:${REST_DB_PASSWORD}@db:5432/school
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_EXTRA_SEARCH_PATH: public,extensions
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      PGRST_DB_POOL: 8
+      PGRST_DB_MAX_ROWS: 1000
+  accounts:
+    image: node:24-alpine
+    restart: unless-stopped
+    logging: *logging
+    command: [node, /app/accounts.mjs]
+    environment:
+      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      AUTH_URL: http://auth:9999
+      REST_URL: http://rest:3000
+      PORT: 8080
+    volumes:
+      - ./accounts.mjs:/app/accounts.mjs:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+  web:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      DOMAIN: ${DOMAIN}
+    ports: ['80:80', '443:443']
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./public:/srv:ro
+      - certificates:/data
+      - caddy_config:/config
+    depends_on: [auth, rest, accounts]
+volumes:
+  database:
+  certificates:
+  caddy_config:

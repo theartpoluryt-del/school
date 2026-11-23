@@ -1,0 +1,23 @@
+{$DOMAIN} {
+  encode gzip zstd
+  header {
+    X-Content-Type-Options nosniff
+    Referrer-Policy strict-origin-when-cross-origin
+    Strict-Transport-Security "max-age=31536000"
+  }
+  handle_path /auth/v1/* {
+    reverse_proxy auth:9999
+  }
+  handle_path /rest/v1/* {
+    reverse_proxy rest:3000
+  }
+  handle /functions/v1/manage-school-user {
+    reverse_proxy accounts:8080
+  }
+  handle {
+    root * /srv
+    @fresh path / /index.html /supabase-config.js
+    header @fresh Cache-Control "no-store"
+    file_server
+  }
+}
