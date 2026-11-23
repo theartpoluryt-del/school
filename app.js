@@ -3716,6 +3716,7 @@ function activeScheduleForEmployeeDate(employeeId, date) {
     row.employeeId === employeeId
     && row.effectiveFrom <= date
     && (!row.effectiveTo || row.effectiveTo >= date)
+    && SchoolModel.isCourseActive(state.students.find(student=>student.id===row.studentId),row,date)
   ));
 }
 

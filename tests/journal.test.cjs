@@ -36,6 +36,18 @@ function fixture() {
   return ctx;
 }
 
+test('mid-month course admission excludes earlier lessons only for that course and teacher',()=>{
+ const c=fixture();c.monthDates=()=>['2026-11-16','2026-11-23','2026-11-30'];
+ c.state.students=[{id:'p',enrollments:[{id:'new',employeeIds:['t'],effectiveFrom:'2026-11-23'},{id:'old',employeeIds:['other'],effectiveFrom:'2026-09-01'}]}];
+ c.state.schedule=[{id:'s',employeeId:'t',studentId:'p',enrollmentId:'new',weekday:1,effectiveFrom:'2025-09-01',pedHours:1},
+  {id:'other-s',employeeId:'other',studentId:'p',enrollmentId:'old',weekday:1,effectiveFrom:'2026-09-01',pedHours:1}];
+ c.refreshJournalMonth('2026-11','2026-11-30','t');c.refreshJournalMonth('2026-11','2026-11-30','other');
+ assert.deepEqual(Array.from(c.state.records.filter(r=>r.employeeId==='t'),r=>r.date),['2026-11-23','2026-11-30']);
+ assert.equal(c.state.records.filter(r=>r.employeeId==='other').length,3);
+ c.refreshJournalMonth('2026-11','2026-11-30','t');
+ assert.equal(c.state.records.some(r=>r.employeeId==='t' && r.date<'2026-11-23'),false);
+});
+
 test('quarter and extra grades belong to one pupil, print, and survive journal regeneration',()=>{
  const c=fixture();
  c.state.schedule=[{id:'s',employeeId:'t',studentId:'g',participantKind:'group',participantIds:['a','b'],type:'Сольфеджио',className:'1/5',weekday:1,time:'10:00-10:40',effectiveFrom:'2026-09-01',pedHours:1}];
