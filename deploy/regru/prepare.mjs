@@ -28,11 +28,10 @@ try {
 }
 const publicPath = path.join(directory,'public');
 await mkdir(path.join(publicPath,'vendor'),{recursive:true});
-const sdk = await fetch('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0/dist/umd/supabase.js');
-if (!sdk.ok) throw new Error('Unable to fetch pinned browser SDK');
-const sdkText = await sdk.text();
-if (sdkText.length<10000) throw new Error('Unexpected browser SDK response');
-await writeFile(path.join(publicPath,'vendor/supabase.js'),sdkText);
+const sdkText = await readFile(path.join(source,'vendor/supabase.js'),'utf8');
+if (sdkText.length<10000 || !sdkText.includes('2.116.0')) throw new Error('Unexpected pinned browser SDK');
+await copyFile(path.join(source,'vendor/supabase.js'),path.join(publicPath,'vendor/supabase.js'));
+await copyFile(path.join(source,'vendor/LICENSE.supabase-js'),path.join(publicPath,'vendor/LICENSE.supabase-js'));
 const files = ['app.js','styles.css','school-model.js','assessment-model.js','sync-model.js',
   'auth-network.js','absence-journal.js','accompanist-journal.js','accompanist-model.js',
   'paid-journal.js','paid-model.js','account-passwords.js'];
