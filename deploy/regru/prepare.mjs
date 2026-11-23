@@ -1,4 +1,4 @@
-import {randomBytes, createHmac} from 'node:crypto';
+import {randomBytes, createHmac, createHash} from 'node:crypto';
 import {readFile, writeFile, mkdir, copyFile, cp} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
@@ -38,10 +38,18 @@ const files = ['app.js','styles.css','school-model.js','assessment-model.js','sy
   'paid-journal.js','paid-model.js','account-passwords.js'];
 for (const name of files) await copyFile(path.join(source,name),path.join(publicPath,name));
 await cp(path.join(source,'assets'),path.join(publicPath,'assets'),{recursive:true});
-const html = (await readFile(path.join(source,'index.html'),'utf8'))
+let html = (await readFile(path.join(source,'index.html'),'utf8'))
   .replace('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0','/vendor/supabase.js');
-await writeFile(path.join(publicPath,'index.html'),html);
 const key = env.match(/^ANON_KEY=(.+)$/m)[1];
 await writeFile(path.join(publicPath,'supabase-config.js'),
   `window.SCHOOL_SUPABASE_CONFIG=${JSON.stringify({url:'https://'+domain,publishableKey:key})};\n`);
+// A browser may still cache files from GitHub Pages at this same domain.
+// Version every local JS/CSS URL by the deployed bytes, including the new config.
+for (const match of [...html.matchAll(/\b(?:src|href)="((?!https?:)[^"]+\.(?:js|css))(?:\?[^"]*)?"/g)]) {
+  const filename = match[1].replace(/^\//,'');
+  const bytes = await readFile(path.join(publicPath,filename));
+  const revision = createHash('sha256').update(bytes).digest('hex').slice(0,16);
+  html = html.replace(match[0],match[0].slice(0,match[0].indexOf('="')+2)+match[1]+'?v='+revision+'"');
+}
+await writeFile(path.join(publicPath,'index.html'),html);
 console.log('Prepared public files and private .env. Secrets were not printed.');

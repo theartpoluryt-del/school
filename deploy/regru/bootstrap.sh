@@ -10,8 +10,13 @@ case "$VERSION_ID" in
   *) echo 'Verify Docker support for this Ubuntu version first' >&2; exit 1 ;;
 esac
 export DEBIAN_FRONTEND=noninteractive
-apt-get update
-apt-get install -y ca-certificates curl unattended-upgrades
+apt_run() {
+  apt-get -o Acquire::ForceIPv4=true -o Acquire::Languages=none \
+    -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 \
+    -o Acquire::Retries=1 -o APT::Update::Error-Mode=any "$@"
+}
+apt_run update
+apt_run install -y ca-certificates curl unattended-upgrades
 if ! command -v docker >/dev/null 2>&1; then
   install -m 0755 -d /etc/apt/keyrings
   curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
@@ -24,8 +29,8 @@ Components: stable
 Architectures: $(dpkg --print-architecture)
 Signed-By: /etc/apt/keyrings/docker.asc
 EOF
-  apt-get update
-  apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  apt_run update
+  apt_run install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 fi
 systemctl enable --now docker
 docker info --format '{{.ServerVersion}}'
