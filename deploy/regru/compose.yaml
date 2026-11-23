@@ -33,6 +33,8 @@ services:
     environment:
       GOTRUE_API_HOST: 0.0.0.0
       GOTRUE_API_PORT: 9999
+      # The browser SDK sends apikey; GoTrue's default CORS headers omit it.
+      GOTRUE_CORS_ALLOWED_HEADERS: apikey
       GOTRUE_DB_DRIVER: postgres
       GOTRUE_DB_DATABASE_URL: postgres://school_auth:${AUTH_DB_PASSWORD}@db:5432/${APP_DB:-school}
       GOTRUE_SITE_URL: ${SITE_URL:-https://muzjur.ru}
